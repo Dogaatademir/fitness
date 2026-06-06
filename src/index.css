@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background-color: #f7f5f2;
+  color: #1a1a1a;
+}
+
+/* iOS Safari'nin input odaklanmasında zoom yapmasını engeller */
+input, textarea, select {
+  font-size: 16px;
+}
