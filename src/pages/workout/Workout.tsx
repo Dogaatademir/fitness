@@ -38,7 +38,6 @@ function relativeDate(dateStr: string): string {
 }
 
 // ─── Renk sabitleri — tek noktadan yönetim ───────────────────────────────────
-// Palet: koyu kömür + kirli krem + pas kırmızısı (vurgu, sadece CTA/aktif)
 const C = {
   bg:          '#0d0d14',
   surface:     '#16161f',   // kart yüzeyi
@@ -48,10 +47,21 @@ const C = {
   text:        '#e8e4dc',   // kirli krem — birincil metin
   textMid:     'rgba(232,228,220,0.45)',
   textLow:     'rgba(232,228,220,0.2)',
-  accent:      '#c0392b',   // pas kırmızısı vurgu — sadece CTA
-  accentMid:   'rgba(192,57,43,0.18)',
-  success:     '#4a7c59',   // ormanlık yeşil — tamamlandı
-  successMid:  'rgba(74,124,89,0.15)',
+
+  // Başlat (Start) - Enerjik Mavi
+  startText:   '#60a5fa',
+  startBg:     'rgba(59,130,246,0.15)',
+  startBorder: 'rgba(59,130,246,0.3)',
+
+  // Devam Et (In Progress) - Kehribar/Turuncu
+  ongoingText: '#fbbf24',
+  ongoingBg:   'rgba(245,158,11,0.15)',
+  ongoingBorder:'rgba(245,158,11,0.3)',
+
+  // Tamamlandı (Done) - Zümrüt Yeşili
+  successText: '#34d399',
+  successBg:   'rgba(16,185,129,0.15)',
+  successBorder:'rgba(16,185,129,0.3)',
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -154,7 +164,7 @@ function ActiveDayCard({ day, session, inProgress, pausedLabel, onClick }: {
             <span className="flex items-center gap-1.5" style={{ color: C.textMid }}>
               <span
                 className="w-1.5 h-1.5 rounded-full inline-block"
-                style={{ background: C.success, boxShadow: `0 0 0 3px ${C.successMid}` }}
+                style={{ background: C.ongoingText, boxShadow: `0 0 0 3px ${C.ongoingBg}` }}
               />
               devam ediyor
             </span>
@@ -164,9 +174,9 @@ function ActiveDayCard({ day, session, inProgress, pausedLabel, onClick }: {
         <span
           className="text-[11px] font-bold px-3 py-1 rounded-full"
           style={{
-            background: done ? C.successMid : inProgress ? C.surfaceHigh : C.accentMid,
-            color: done ? '#6aab7d' : inProgress ? C.textMid : '#e05c4a',
-            border: `1px solid ${done ? 'rgba(74,124,89,0.3)' : inProgress ? C.border : 'rgba(192,57,43,0.25)'}`,
+            background: done ? C.successBg : inProgress ? C.ongoingBg : C.startBg,
+            color: done ? C.successText : inProgress ? C.ongoingText : C.startText,
+            border: `1px solid ${done ? C.successBorder : inProgress ? C.ongoingBorder : C.startBorder}`,
           }}
         >
           {done
@@ -246,9 +256,9 @@ function LockedDayRow({ day, session }: {
       <div
         className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-sm font-black"
         style={{
-          background: done ? C.successMid : C.surfaceHigh,
-          color: done ? '#6aab7d' : C.textLow,
-          border: `1px solid ${done ? 'rgba(74,124,89,0.2)' : C.borderSub}`,
+          background: done ? C.successBg : C.surfaceHigh,
+          color: done ? C.successText : C.textLow,
+          border: `1px solid ${done ? C.successBorder : C.borderSub}`,
         }}
       >
         {done ? '✓' : <Lock size={12} />}
@@ -267,7 +277,7 @@ function LockedDayRow({ day, session }: {
       </div>
       <span
         className="text-[10px] font-bold uppercase tracking-wider flex-shrink-0"
-        style={{ color: done ? '#4a7c59' : C.textLow }}
+        style={{ color: done ? C.successText : C.textLow }}
       >
         {done ? 'bitti' : `${day.order_index + 1}. gün`}
       </span>
@@ -485,9 +495,9 @@ export default function Workout() {
             onClick={() => setShowConfirm(true)}
             className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl font-bold text-sm tracking-wide active:scale-[0.97] transition-transform"
             style={{
-              background: isInProgress ? C.successMid : C.accentMid,
-              border: `1px solid ${isInProgress ? 'rgba(74,124,89,0.35)' : 'rgba(192,57,43,0.3)'}`,
-              color: isInProgress ? '#6aab7d' : '#e05c4a',
+              background: isInProgress ? C.ongoingBg : C.startBg,
+              border: `1px solid ${isInProgress ? C.ongoingBorder : C.startBorder}`,
+              color: isInProgress ? C.ongoingText : C.startText,
             }}
           >
             <Play size={14} fill="currentColor" strokeWidth={0} />
@@ -535,9 +545,9 @@ export default function Workout() {
                 onClick={handleStartConfirmed}
                 className="flex-1 py-3.5 rounded-xl text-sm font-bold active:scale-95 transition-transform"
                 style={{
-                  background: isInProgress ? C.successMid : C.accentMid,
-                  border: `1px solid ${isInProgress ? 'rgba(74,124,89,0.35)' : 'rgba(192,57,43,0.3)'}`,
-                  color: isInProgress ? '#6aab7d' : '#e05c4a',
+                  background: isInProgress ? C.ongoingBg : C.startBg,
+                  border: `1px solid ${isInProgress ? C.ongoingBorder : C.startBorder}`,
+                  color: isInProgress ? C.ongoingText : C.startText,
                 }}
               >
                 {isInProgress ? 'Devam Et' : 'Başlat'}
