@@ -47,7 +47,11 @@ async function estimateWithGroq(foodName: string, serving: string, unit: string)
   fat_g: number
 } | null> {
   const key = import.meta.env.VITE_GROQ_API_KEY
-  if (!key) return null
+  console.log('[Groq] key mevcut:', !!key, '| key prefix:', key?.slice(0, 8) ?? 'YOK')
+  if (!key) {
+    console.error('[Groq] VITE_GROQ_API_KEY tanımlı değil — deploy env kontrol et')
+    return null
+  }
 
   const prompt = `Türk mutfağı ve uluslararası besinler hakkında beslenme uzmanısın.
 "${foodName}" için ${serving}${unit} porsiyonunun besin değerlerini tahmin et.
@@ -55,6 +59,7 @@ Sadece JSON döndür, başka hiçbir şey yazma:
 {"calories":number,"protein_g":number,"carb_g":number,"fat_g":number}
 Tüm değerler sayı olmalı (ondalık olabilir). Kalori tam sayı olsun.`
 
+  console.log('[Groq] istek gönderiliyor:', foodName, serving, unit)
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -69,14 +74,26 @@ Tüm değerler sayı olmalı (ondalık olabilir). Kalori tam sayı olsun.`
     }),
   })
 
-  if (!res.ok) return null
+  console.log('[Groq] yanıt status:', res.status)
+  if (!res.ok) {
+    const errText = await res.text()
+    console.error('[Groq] API hatası:', res.status, errText)
+    return null
+  }
   const data = await res.json()
+  console.log('[Groq] yanıt:', JSON.stringify(data.choices?.[0]?.message?.content))
   const text = data.choices?.[0]?.message?.content ?? ''
   const match = text.match(/\{[\s\S]*?\}/)
-  if (!match) return null
+  if (!match) {
+    console.error('[Groq] JSON parse edilemedi, ham yanıt:', text)
+    return null
+  }
   try {
-    return JSON.parse(match[0])
-  } catch {
+    const parsed = JSON.parse(match[0])
+    console.log('[Groq] başarılı:', parsed)
+    return parsed
+  } catch (e) {
+    console.error('[Groq] JSON.parse hatası:', e)
     return null
   }
 }
