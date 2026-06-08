@@ -140,12 +140,25 @@ async function fetchDashboard(): Promise<DashData> {
   const { data: user } = await supabase.auth.getUser()
   if (!user.user) throw new Error('Oturum açılmamış')
 
-  const { data: rpc, error } = await supabase.rpc('get_dashboard_data', {
-    p_user_id: user.user.id,
-    p_today: todayStr,
-    p_week_start: weekStart,
-  })
-  if (error) throw error
+  // Streak için RPC'den bağımsız olarak son 90 günlük tamamlanmış session tarihlerini çek
+  const streakSince = new Date()
+  streakSince.setDate(streakSince.getDate() - 90)
+  const [rpcResult, streakRows] = await Promise.all([
+    supabase.rpc('get_dashboard_data', {
+      p_user_id: user.user.id,
+      p_today: todayStr,
+      p_week_start: weekStart,
+    }),
+    supabase
+      .from('workout_sessions')
+      .select('date')
+      .eq('user_id', user.user.id)
+      .not('ended_at', 'is', null)
+      .gte('date', localDateStr(streakSince))
+      .order('date', { ascending: false }),
+  ])
+  if (rpcResult.error) throw rpcResult.error
+  const { data: rpc } = rpcResult
 
   const r = (typeof rpc === 'string' ? JSON.parse(rpc) : rpc) as Record<string, unknown>
   const profile       = r.profile           as Record<string, number> | null
@@ -203,27 +216,19 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
     (acc, s) => acc + ((s.weight_kg as number) || 0) * ((s.reps as number) || 0), 0
   )
 
-  // Sadece tamamlanmış session'lar streak'e sayılır
-  const completedDates = new Set(
-    (allSessions as { date: string; ended_at?: string }[])
-      .filter(s => s.ended_at)
-      .map(s => s.date)
-  )
-  // Seri: ardışık antrenman tarihlerini en yeniden eskiye doğru say.
-  // İki antrenman arasındaki boşluk 2 güne kadar tolere edilir (örn. Cuma→Pazartesi geçerli).
-  // 3+ gün boşluk seriyi keser.
+  // Streak: RPC'den bağımsız, son 90 günlük gerçek veriden hesapla
+  // İki antrenman arasındaki boşluk 2 güne kadar tolere edilir; 3+ gün seriyi keser.
+  const streakDates = [...new Set((streakRows.data ?? []).map(s => s.date))].sort().reverse()
   let streak = 0
-  const sortedDates = [...completedDates].sort().reverse() // en yeni önce
-  if (sortedDates.length > 0) {
-    // Son antrenmandan bu yana 3+ gün geçtiyse seri zaten 0
+  if (streakDates.length > 0) {
     const daysSinceLast = Math.round(
-      (new Date(localDateStr()).getTime() - new Date(sortedDates[0]).getTime()) / 86400000
+      (new Date(todayStr).getTime() - new Date(streakDates[0]).getTime()) / 86400000
     )
     if (daysSinceLast <= 2) {
       streak = 1
-      for (let i = 1; i < sortedDates.length; i++) {
+      for (let i = 1; i < streakDates.length; i++) {
         const gap = Math.round(
-          (new Date(sortedDates[i - 1]).getTime() - new Date(sortedDates[i]).getTime()) / 86400000
+          (new Date(streakDates[i - 1]).getTime() - new Date(streakDates[i]).getTime()) / 86400000
         )
         if (gap <= 2) streak++
         else break
