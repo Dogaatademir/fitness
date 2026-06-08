@@ -31,6 +31,7 @@ type FormState = {
   daily_carb_goal: string
   daily_fat_goal: string
   training_calorie_goal: string
+  daily_water_goal: string
 }
 
 function profileToForm(p: UserProfile | null): FormState {
@@ -42,6 +43,7 @@ function profileToForm(p: UserProfile | null): FormState {
     daily_carb_goal:       String(p?.daily_carb_goal       ?? '135'),
     daily_fat_goal:        String(p?.daily_fat_goal        ?? '47'),
     training_calorie_goal: String(p?.training_calorie_goal ?? ''),
+    daily_water_goal:      String(p?.daily_water_goal      ?? '3000'),
   }
 }
 
@@ -54,6 +56,7 @@ function formToProfile(f: FormState): UserProfile {
     daily_carb_goal:       parseInt(f.daily_carb_goal)         || 135,
     daily_fat_goal:        parseInt(f.daily_fat_goal)          || 47,
     training_calorie_goal: f.training_calorie_goal ? parseInt(f.training_calorie_goal) : undefined,
+    daily_water_goal:      f.daily_water_goal ? parseInt(f.daily_water_goal) : 3000,
   }
 }
 
@@ -207,7 +210,8 @@ export default function Settings() {
             />
             <FieldRow label="Protein"      suffix="g" value={form.daily_protein_goal} onChange={set('daily_protein_goal')} />
             <FieldRow label="Karbonhidrat" suffix="g" value={form.daily_carb_goal}    onChange={set('daily_carb_goal')} />
-            <FieldRow label="Yağ"          suffix="g" value={form.daily_fat_goal}      onChange={set('daily_fat_goal')} />
+            <FieldRow label="Yağ"          suffix="g"  value={form.daily_fat_goal}     onChange={set('daily_fat_goal')} />
+            <FieldRow label="Su"           suffix="ml" value={form.daily_water_goal}    onChange={set('daily_water_goal')} />
             <div style={{ height: 1, background: 'transparent' }} />
           </div>
         </div>

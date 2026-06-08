@@ -4,7 +4,7 @@ import { Plus, History, X } from 'lucide-react'
 import { foodLogDb, profileDb } from '../../lib/db'
 import { today } from '../../lib/storage'
 import { QK } from '../../lib/queryClient'
-import type { FoodLog, MealType } from '../../types'
+import { MEAL_LABELS, MEAL_ORDER } from '../../lib/mealConstants'
 
 const C = {
   bg:           '#f5f3ef',
@@ -27,15 +27,7 @@ const C = {
   dangerBg:     'rgba(185,28,28,0.07)',
   dangerBorder: 'rgba(185,28,28,0.2)',
 }
-
-const MEAL_LABELS: Record<MealType, string> = {
-  breakfast: 'Kahvaltı',
-  lunch: 'Öğle',
-  dinner: 'Akşam',
-  snack: 'Ara Öğün',
-}
-
-const MEAL_ORDER: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack']
+import type { FoodLog, MealType } from '../../types'
 
 function MacroBar({ label, value, goal, color }: { label: string; value: number; goal: number; color: string }) {
   const pct = Math.min((value / Math.max(goal, 1)) * 100, 100)
@@ -69,7 +61,7 @@ export default function Nutrition() {
     staleTime: 1000 * 60 * 2,
   })
 
-  const { data: profile } = useQuery({
+  const { data: profile, isLoading: profileLoading } = useQuery({
     queryKey: QK.profile,
     queryFn: () => profileDb.get(),
     staleTime: Infinity,
@@ -106,6 +98,8 @@ export default function Nutrition() {
     weekday: 'long', day: 'numeric', month: 'long',
   })
 
+  const hasAnyLog = logs.length > 0
+
   return (
     <div className="min-h-screen" style={{ background: C.bg, color: C.text }}>
       <div className="px-5 pt-14 pb-6 flex items-start justify-between">
@@ -129,38 +123,73 @@ export default function Nutrition() {
       <div className="px-4 pb-10 space-y-3">
         {/* Kalori kartı */}
         <div className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-          <div className="flex items-baseline justify-between mb-2">
-            <span className="text-[32px] font-bold tracking-tight leading-none" style={{ color: C.text }}>
-              {Math.round(totalCal)}
-            </span>
-            <span className="text-sm font-medium" style={{ color: over ? C.danger : C.textMid }}>
-              {over
-                ? `${Math.abs(Math.round(remaining))} kcal aşıldı`
-                : `${Math.round(remaining)} kcal kaldı`}
-            </span>
-          </div>
-          <p className="text-xs mb-3" style={{ color: C.textLow }}>hedef {calorieGoal} kcal</p>
-
-          {/* Progress bar */}
-          <div className="h-1.5 rounded-full mb-5" style={{ background: C.surfaceHigh }}>
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{
-                width: `${calPct * 100}%`,
-                backgroundColor: over ? C.danger : C.startText,
-              }}
-            />
-          </div>
-
-          {/* Makro barlar */}
-          <div className="space-y-3">
-            <MacroBar label="Protein"      value={totalProtein} goal={proteinGoal} color="#4f46e5" />
-            <MacroBar label="Karbonhidrat" value={totalCarb}    goal={carbGoal}    color="#166534" />
-            <MacroBar label="Yağ"          value={totalFat}     goal={fatGoal}     color="#b45309" />
-          </div>
+          {profileLoading ? (
+            <div className="space-y-3 animate-pulse">
+              <div className="h-8 w-32 rounded-lg" style={{ background: C.surfaceHigh }} />
+              <div className="h-1.5 rounded-full" style={{ background: C.surfaceHigh }} />
+              <div className="space-y-3 pt-1">
+                {[0, 1, 2].map(i => (
+                  <div key={i} className="space-y-1.5">
+                    <div className="flex justify-between">
+                      <div className="h-3 w-16 rounded" style={{ background: C.surfaceHigh }} />
+                      <div className="h-3 w-12 rounded" style={{ background: C.surfaceHigh }} />
+                    </div>
+                    <div className="h-1.5 rounded-full" style={{ background: C.surfaceHigh }} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-baseline justify-between mb-2">
+                <span className="text-[32px] font-bold tracking-tight leading-none" style={{ color: C.text }}>
+                  {Math.round(totalCal)}
+                </span>
+                <span className="text-sm font-medium" style={{ color: over ? C.danger : C.textMid }}>
+                  {over
+                    ? `${Math.abs(Math.round(remaining))} kcal aşıldı`
+                    : `${Math.round(remaining)} kcal kaldı`}
+                </span>
+              </div>
+              <p className="text-xs mb-3" style={{ color: C.textLow }}>hedef {calorieGoal} kcal</p>
+              <div className="h-1.5 rounded-full mb-5" style={{ background: C.surfaceHigh }}>
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${calPct * 100}%`,
+                    backgroundColor: over ? C.danger : C.startText,
+                  }}
+                />
+              </div>
+              <div className="space-y-3">
+                <MacroBar label="Protein"      value={totalProtein} goal={proteinGoal} color="#4f46e5" />
+                <MacroBar label="Karbonhidrat" value={totalCarb}    goal={carbGoal}    color="#166534" />
+                <MacroBar label="Yağ"          value={totalFat}     goal={fatGoal}     color="#b45309" />
+              </div>
+            </>
+          )}
         </div>
 
-        {MEAL_ORDER.map(mealType => {
+        {/* Boş durum */}
+        {!hasAnyLog && (
+          <div
+            className="rounded-2xl p-6 text-center"
+            style={{ background: C.surface, border: `1px solid ${C.border}` }}
+          >
+            <p className="text-[28px] mb-2">🥗</p>
+            <p className="text-sm font-semibold mb-1" style={{ color: C.text }}>Bugün henüz bir şey eklemedin</p>
+            <p className="text-xs mb-4" style={{ color: C.textMid }}>İlk öğününü ekleyerek güne başla.</p>
+            <button
+              onClick={() => navigate('/nutrition/log')}
+              className="px-5 py-2.5 rounded-xl text-sm font-bold active:opacity-80 transition-opacity"
+              style={{ background: C.text, color: C.bg }}
+            >
+              Besin Ekle
+            </button>
+          </div>
+        )}
+
+        {MEAL_ORDER.map((mealType: MealType) => {
           const mealLogs = logs.filter(f => f.meal_type === mealType)
           const mealCal  = mealLogs.reduce((s, f) => s + f.calories, 0)
           return (
@@ -228,14 +257,16 @@ export default function Nutrition() {
           )
         })}
 
-        <button
-          onClick={() => navigate('/nutrition/log')}
-          className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl font-semibold text-sm active:opacity-80 transition-opacity"
-          style={{ background: C.text, color: C.bg }}
-        >
-          <Plus size={15} />
-          Besin Ekle
-        </button>
+        {hasAnyLog && (
+          <button
+            onClick={() => navigate('/nutrition/log')}
+            className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl font-semibold text-sm active:opacity-80 transition-opacity"
+            style={{ background: C.text, color: C.bg }}
+          >
+            <Plus size={15} />
+            Besin Ekle
+          </button>
+        )}
       </div>
     </div>
   )

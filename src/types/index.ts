@@ -134,4 +134,5 @@ export interface UserProfile {
   daily_carb_goal: number
   daily_fat_goal: number
   training_calorie_goal?: number
+  daily_water_goal?: number
 }

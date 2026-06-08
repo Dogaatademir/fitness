@@ -116,18 +116,26 @@ interface DashData {
   latestBody: BodyMeasurement | null
   prevBody: BodyMeasurement | null
   hasProfile: boolean
+  waterGoal: number
 }
 
 const WATER_STEP = 250
-const WATER_GOAL = 3000
+const WATER_GOAL_DEFAULT = 3000
+
+function localDateStr(d: Date = new Date()): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 
 async function fetchDashboard(): Promise<DashData> {
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr = localDateStr()
 
   const startOfWeek = new Date()
-  const dow = startOfWeek.getDay()
+  const dow = startOfWeek.getDay() // 0=Pazar
   startOfWeek.setDate(startOfWeek.getDate() - (dow === 0 ? 6 : dow - 1))
-  const weekStart = startOfWeek.toISOString().split('T')[0]
+  const weekStart = localDateStr(startOfWeek)
 
   const { data: user } = await supabase.auth.getUser()
   if (!user.user) throw new Error('Oturum açılmamış')
@@ -153,6 +161,7 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
 
   let todayDay: ProgramDay | null = null
   let todayExercises: Exercise[] = []
+  let lastSessionExercises: string[] = []
   if (activeProgram) {
     const activeDays = programDays
       .filter(d => d.program_id === activeProgram.id)
@@ -170,7 +179,24 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
       todayDay = activeDays[nextIndex]
     }
 
-    if (todayDay) todayExercises = await exerciseDb.getByDay(todayDay.id)
+    // exerciseDb.getByDay ve egzersiz adı sorgusu paralel çalışsın
+    const lastExerciseIdsPre = [
+      ...new Set(
+        lastSetsList
+          .filter(s => (s as Record<string, unknown>).completed)
+          .map(s => (s as Record<string, unknown>).exercise_id as string)
+          .filter(Boolean)
+      )
+    ]
+    const [exercises, exRows] = await Promise.all([
+      todayDay ? exerciseDb.getByDay(todayDay.id) : Promise.resolve([]),
+      lastExerciseIdsPre.length > 0
+        ? supabase.from('exercises').select('id, name').in('id', lastExerciseIdsPre).then(r => r.data ?? [])
+        : Promise.resolve([]),
+    ])
+    todayExercises = exercises
+    const nameMap = Object.fromEntries(exRows.map((e: { id: string; name: string }) => [e.id, e.name]))
+    lastSessionExercises = lastExerciseIdsPre.map(id => nameMap[id]).filter(Boolean)
   }
 
   const weeklyVolume = weeklySets.reduce(
@@ -183,12 +209,29 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
       .filter(s => s.ended_at)
       .map(s => s.date)
   )
+  // Seri: ardışık antrenman tarihlerini en yeniden eskiye doğru say.
+  // İki antrenman arasındaki boşluk 2 güne kadar tolere edilir (örn. Cuma→Pazartesi geçerli).
+  // 3+ gün boşluk seriyi keser.
   let streak = 0
-  const cur = new Date()
-  if (!completedDates.has(cur.toISOString().split('T')[0])) cur.setDate(cur.getDate() - 1)
-  while (completedDates.has(cur.toISOString().split('T')[0])) { streak++; cur.setDate(cur.getDate() - 1) }
+  const sortedDates = [...completedDates].sort().reverse() // en yeni önce
+  if (sortedDates.length > 0) {
+    // Son antrenmandan bu yana 3+ gün geçtiyse seri zaten 0
+    const daysSinceLast = Math.round(
+      (new Date(localDateStr()).getTime() - new Date(sortedDates[0]).getTime()) / 86400000
+    )
+    if (daysSinceLast <= 2) {
+      streak = 1
+      for (let i = 1; i < sortedDates.length; i++) {
+        const gap = Math.round(
+          (new Date(sortedDates[i - 1]).getTime() - new Date(sortedDates[i]).getTime()) / 86400000
+        )
+        if (gap <= 2) streak++
+        else break
+      }
+    }
+  }
 
-  const weekSessions = (allSessions as { date: string }[]).filter(s => s.date >= weekStart)
+  const weekSessions = (allSessions as { date: string; ended_at?: string }[]).filter(s => s.date >= weekStart && s.ended_at)
   const lastSession  = lastSessionId
     ? (allSessions as LastSession[]).find(s => s.id === lastSessionId) ?? null
     : null
@@ -197,35 +240,16 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
     ? programDays.find(d => d.id === lastSession.program_day_id)?.day_name ?? ''
     : ''
 
-  // Haftalık gün takvimi: Pzt(0)–Paz(6)
+  // weekDays: sadece tamamlanan session'lar yeşil gösterilir
   const weekDayDates = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart)
+    const d = new Date(weekStart + 'T00:00:00')
     d.setDate(d.getDate() + i)
-    return d.toISOString().split('T')[0]
+    return localDateStr(d)
   })
-  const sessionDates = new Set((allSessions as { date: string }[]).map(s => s.date))
-  const weekDays = weekDayDates.map(d => sessionDates.has(d))
-
-  // Son antrenman egzersiz adları — exercise_id'leri çek, isimleri getir
-  const lastExerciseIds = [
-    ...new Set(
-      lastSetsList
-        .filter(s => (s as Record<string, unknown>).completed)
-        .map(s => (s as Record<string, unknown>).exercise_id as string)
-        .filter(Boolean)
-    )
-  ]
-  let lastSessionExercises: string[] = []
-  if (lastExerciseIds.length > 0) {
-    const { data: exRows } = await supabase
-      .from('exercises')
-      .select('id, name')
-      .in('id', lastExerciseIds)
-    if (exRows) {
-      const nameMap = Object.fromEntries(exRows.map(e => [e.id, e.name]))
-      lastSessionExercises = lastExerciseIds.map(id => nameMap[id]).filter(Boolean)
-    }
-  }
+  const completedSessionDates = new Set(
+    (allSessions as { date: string; ended_at?: string }[]).filter(s => s.ended_at).map(s => s.date)
+  )
+  const weekDays = weekDayDates.map(d => completedSessionDates.has(d))
 
   const calorieGoal = todayDay && profile?.training_calorie_goal
     ? profile.training_calorie_goal
@@ -256,6 +280,7 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
     latestBody: bodyHistory[0] ?? null,
     prevBody:   bodyHistory[1] ?? null,
     hasProfile: !!profile,
+    waterGoal:  profile?.daily_water_goal ?? WATER_GOAL_DEFAULT,
   }
 }
 
@@ -309,7 +334,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 export default function Dashboard() {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr = localDateStr()
 
   const { data } = useQuery({
     queryKey: QK.dashboard,
@@ -348,13 +373,28 @@ export default function Dashboard() {
 
   const [showStartConfirm, setShowStartConfirm] = useState(false)
 
-  if (!data) return null
+  if (!data) return (
+    <div className="min-h-screen" style={{ background: C.bg }}>
+      <div className="px-5 pt-14 pb-5 flex items-start justify-between">
+        <div className="space-y-2">
+          <div className="h-3 w-16 rounded-full animate-pulse" style={{ background: C.surfaceHigh }} />
+          <div className="h-8 w-24 rounded-xl animate-pulse" style={{ background: C.surfaceHigh }} />
+        </div>
+        <div className="w-9 h-9 rounded-xl animate-pulse mt-1" style={{ background: C.surfaceHigh }} />
+      </div>
+      <div className="px-4 space-y-3">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="rounded-2xl animate-pulse" style={{ background: C.surface, border: `1px solid ${C.border}`, height: i === 1 ? 200 : 120 }} />
+        ))}
+      </div>
+    </div>
+  )
 
   const calorieLeft = data.calorieGoal - data.calorieConsumed
   const calorieOver = calorieLeft < 0
   const caloriePct  = Math.min((data.calorieConsumed / Math.max(data.calorieGoal, 1)) * 100, 100)
   const waterGlasses = Math.round(water / WATER_STEP)
-  const waterGoalGlasses = WATER_GOAL / WATER_STEP
+  const waterGoalGlasses = data.waterGoal / WATER_STEP
   const weightChange = data.latestBody && data.prevBody
     ? +(data.latestBody.weight_kg - data.prevBody.weight_kg).toFixed(1)
     : null
@@ -366,7 +406,7 @@ export default function Dashboard() {
     if (isWorkoutDone) {
       navigate(`/workout/history/${data!.todaySession!.id}`)
     } else if (isWorkoutInProgress) {
-      navigate('/workout/start')
+      navigate('/workout/start', { state: { dayId: data!.todayDay?.id } })
     } else {
       setShowStartConfirm(true)
     }
@@ -417,6 +457,34 @@ export default function Dashboard() {
       </div>
 
       <div className="px-4 space-y-3 pb-32">
+
+        {/* ── Yeni Kullanıcı Hoş Geldin — antrenman kartının üstünde ── */}
+        {isNewUser && (
+          <Card>
+            <div className="p-5">
+              <p className="text-[22px] font-black leading-tight mb-2" style={{ color: C.text }}>Hoş geldin!</p>
+              <p className="text-sm leading-relaxed mb-5" style={{ color: C.textMid }}>
+                Başlamak için önce hedeflerini gir, sonra kendine uygun bir antrenman programı oluştur.
+              </p>
+              <div className="flex gap-2.5">
+                <button
+                  onClick={() => navigate('/settings')}
+                  className="flex-1 py-3.5 rounded-xl text-sm font-semibold active:scale-95 transition-transform"
+                  style={{ background: C.surfaceHigh, border: `1px solid ${C.border}`, color: C.text }}
+                >
+                  Hedefleri Gir
+                </button>
+                <button
+                  onClick={() => navigate('/programs')}
+                  className="flex-1 py-3.5 rounded-xl text-sm font-bold active:scale-95 transition-transform"
+                  style={{ background: C.startBg, border: `1px solid ${C.startBorder}`, color: C.startText }}
+                >
+                  Program Oluştur
+                </button>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* ── Antrenman Hero ── */}
         {data.activeProgram ? (
@@ -519,8 +587,8 @@ export default function Dashboard() {
           </Card>
         )}
 
-        {/* ── Son Antrenman ── */}
-        {data.lastSession && (
+        {/* ── Son Antrenman / İlk Antrenman CTA ── */}
+        {data.lastSession ? (
           <Card onClick={() => navigate('/workout/history')}>
             <div className="p-4 flex items-center gap-3">
               <div
@@ -543,6 +611,20 @@ export default function Dashboard() {
                 </p>
               </div>
               <ChevronRight size={16} style={{ color: C.textLow }} />
+            </div>
+          </Card>
+        ) : !isNewUser && (
+          <Card onClick={() => navigate('/workout')}>
+            <div className="p-4 flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0"
+                style={{ background: C.startBg }}>
+                <Dumbbell size={18} strokeWidth={1.6} style={{ color: C.startText }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[14px] font-bold" style={{ color: C.text }}>İlk antrenmanını başlat</p>
+                <p className="text-[12px] mt-0.5" style={{ color: C.textMid }}>Programını seç ve harekete geç</p>
+              </div>
+              <ArrowRight size={16} style={{ color: C.textLow }} />
             </div>
           </Card>
         )}
@@ -637,12 +719,20 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Makrolar */}
-            <div className="space-y-3.5">
-              <MacroBar label="Protein" value={data.protein} goal={data.proteinGoal} color="#4f46e5" />
-              <MacroBar label="Karbonhidrat" value={data.carb} goal={data.carbGoal} color="#166534" />
-              <MacroBar label="Yağ" value={data.fat} goal={data.fatGoal} color="#b45309" />
-            </div>
+            {data.calorieConsumed === 0 ? (
+              <div className="pt-1 pb-1 flex items-center justify-between">
+                <p className="text-[13px]" style={{ color: C.textMid }}>Bugün henüz eklemedin</p>
+                <span className="text-[12px] font-bold flex items-center gap-1" style={{ color: C.startText }}>
+                  Ekle <ArrowRight size={12} />
+                </span>
+              </div>
+            ) : (
+              <div className="space-y-3.5">
+                <MacroBar label="Protein" value={data.protein} goal={data.proteinGoal} color="#4f46e5" />
+                <MacroBar label="Karbonhidrat" value={data.carb} goal={data.carbGoal} color="#166534" />
+                <MacroBar label="Yağ" value={data.fat} goal={data.fatGoal} color="#b45309" />
+              </div>
+            )}
           </div>
         </Card>
 
@@ -661,7 +751,7 @@ export default function Dashboard() {
                   </span>
                 </div>
                 <p className="text-[11px] mt-1 font-medium" style={{ color: C.textLow }}>
-                  {formatWater(water)} / {WATER_GOAL / 1000} L
+                  {formatWater(water)} / {data.waterGoal / 1000} L
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -789,33 +879,6 @@ export default function Dashboard() {
           </Card>
         )}
 
-        {/* ── Yeni Kullanıcı Hoş Geldin ── */}
-        {isNewUser && (
-          <Card>
-            <div className="p-5">
-              <p className="text-[22px] font-black leading-tight mb-2" style={{ color: C.text }}>Hoş geldin!</p>
-              <p className="text-sm leading-relaxed mb-5" style={{ color: C.textMid }}>
-                Başlamak için önce hedeflerini gir, sonra kendine uygun bir antrenman programı oluştur.
-              </p>
-              <div className="flex gap-2.5">
-                <button
-                  onClick={() => navigate('/settings')}
-                  className="flex-1 py-3.5 rounded-xl text-sm font-semibold active:scale-95 transition-transform"
-                  style={{ background: C.surfaceHigh, border: `1px solid ${C.border}`, color: C.text }}
-                >
-                  Hedefleri Gir
-                </button>
-                <button
-                  onClick={() => navigate('/programs')}
-                  className="flex-1 py-3.5 rounded-xl text-sm font-bold active:scale-95 transition-transform"
-                  style={{ background: C.startBg, border: `1px solid ${C.startBorder}`, color: C.startText }}
-                >
-                  Program Oluştur
-                </button>
-              </div>
-            </div>
-          </Card>
-        )}
 
       </div>
 
@@ -848,7 +911,7 @@ export default function Dashboard() {
                 İptal
               </button>
               <button
-                onClick={() => { setShowStartConfirm(false); navigate('/workout/start') }}
+                onClick={() => { setShowStartConfirm(false); navigate('/workout/start', { state: { dayId: data!.todayDay?.id } }) }}
                 className="flex-[2] py-3.5 rounded-2xl text-sm font-bold active:scale-95 transition-transform"
                 style={{ background: C.startBg, border: `1px solid ${C.startBorder}`, color: C.startText }}
               >

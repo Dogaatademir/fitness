@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react'
 import { foodLogDb } from '../../lib/db'
 import { today } from '../../lib/storage'
 import { QK } from '../../lib/queryClient'
-import type { MealType } from '../../types'
+import { MEAL_LABELS, MEAL_ORDER } from '../../lib/mealConstants'
 
 const C = {
   bg:          '#f5f3ef',
@@ -16,19 +16,13 @@ const C = {
   text:        '#1a1714',
   textMid:     'rgba(26,23,20,0.45)',
   textLow:     'rgba(26,23,20,0.28)',
+  startText:   '#1d4ed8',
+  startBorder: 'rgba(29,78,216,0.18)',
   danger:      '#b91c1c',
   dangerBg:    'rgba(185,28,28,0.07)',
   dangerBorder:'rgba(185,28,28,0.2)',
 }
-
-const MEAL_LABELS: Record<MealType, string> = {
-  breakfast: 'Kahvaltı',
-  lunch: 'Öğle',
-  dinner: 'Akşam',
-  snack: 'Ara Öğün',
-}
-
-const MEAL_ORDER: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack']
+import type { MealType } from '../../types'
 
 interface ManualForm {
   food_name: string
@@ -40,26 +34,37 @@ interface ManualForm {
   serving_unit: string
 }
 
-async function estimateWithGroq(foodName: string, serving: string, unit: string): Promise<{
-  calories: number
-  protein_g: number
-  carb_g: number
-  fat_g: number
-} | null> {
+type BaseValues = { calories: number; protein_g: number; carb_g: number; fat_g: number }
+
+function defaultServing(unit: string): string {
+  return unit === 'g' || unit === 'ml' ? '100' : '1'
+}
+
+function scaleMacros(base: BaseValues, qty: number, unit: string) {
+  const divisor = unit === 'g' || unit === 'ml' ? 100 : 1
+  const scale = qty / divisor
+  return {
+    calories:  String(Math.round(base.calories  * scale)),
+    protein_g: String(Math.round(base.protein_g * scale * 10) / 10),
+    carb_g:    String(Math.round(base.carb_g    * scale * 10) / 10),
+    fat_g:     String(Math.round(base.fat_g     * scale * 10) / 10),
+  }
+}
+
+async function estimateWithGroq(foodName: string, unit: string): Promise<BaseValues | null> {
   const key = import.meta.env.VITE_GROQ_API_KEY
-  console.log('[Groq] key mevcut:', !!key, '| key prefix:', key?.slice(0, 8) ?? 'YOK')
   if (!key) {
-    console.error('[Groq] VITE_GROQ_API_KEY tanımlı değil — deploy env kontrol et')
+    console.error('[Groq] VITE_GROQ_API_KEY tanımlı değil')
     return null
   }
 
+  const unitLabel = unit === 'g' || unit === 'ml' ? `100${unit}` : `1 ${unit}`
   const prompt = `Türk mutfağı ve uluslararası besinler hakkında beslenme uzmanısın.
-"${foodName}" için ${serving}${unit} porsiyonunun besin değerlerini tahmin et.
+"${foodName}" için ${unitLabel} başına besin değerlerini tahmin et.
 Sadece JSON döndür, başka hiçbir şey yazma:
 {"calories":number,"protein_g":number,"carb_g":number,"fat_g":number}
 Tüm değerler sayı olmalı (ondalık olabilir). Kalori tam sayı olsun.`
 
-  console.log('[Groq] istek gönderiliyor:', foodName, serving, unit)
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -74,26 +79,17 @@ Tüm değerler sayı olmalı (ondalık olabilir). Kalori tam sayı olsun.`
     }),
   })
 
-  console.log('[Groq] yanıt status:', res.status)
   if (!res.ok) {
-    const errText = await res.text()
-    console.error('[Groq] API hatası:', res.status, errText)
+    console.error('[Groq] API hatası:', res.status, await res.text())
     return null
   }
   const data = await res.json()
-  console.log('[Groq] yanıt:', JSON.stringify(data.choices?.[0]?.message?.content))
   const text = data.choices?.[0]?.message?.content ?? ''
   const match = text.match(/\{[\s\S]*?\}/)
-  if (!match) {
-    console.error('[Groq] JSON parse edilemedi, ham yanıt:', text)
-    return null
-  }
+  if (!match) return null
   try {
-    const parsed = JSON.parse(match[0])
-    console.log('[Groq] başarılı:', parsed)
-    return parsed
-  } catch (e) {
-    console.error('[Groq] JSON.parse hatası:', e)
+    return JSON.parse(match[0]) as BaseValues
+  } catch {
     return null
   }
 }
@@ -112,31 +108,57 @@ export default function NutritionLog() {
   const [error, setError] = useState('')
   const [estimating, setEstimating] = useState(false)
   const [aiError, setAiError] = useState('')
+  const [baseValues, setBaseValues] = useState<BaseValues | null>(null)
+  // Tracks whether current macro values were filled by AI (to show visual indicator)
+  const [aiLocked, setAiLocked] = useState(false)
 
   function setF(field: keyof ManualForm) {
-    return (v: string) => setForm(f => ({ ...f, [field]: v }))
+    return (v: string) => {
+      setForm(f => {
+        const updated = { ...f, [field]: v }
+
+        if (field === 'serving_unit') {
+          // Birim değişince temel değerler ve makrolar geçersiz
+          setBaseValues(null)
+          setAiLocked(false)
+          updated.serving_size = ''
+          updated.calories  = ''
+          updated.protein_g = ''
+          updated.carb_g    = ''
+          updated.fat_g     = ''
+          return updated
+        }
+
+        if (field === 'serving_size' && baseValues) {
+          const qty = parseFloat(v) || parseFloat(defaultServing(f.serving_unit))
+          Object.assign(updated, scaleMacros(baseValues, qty, f.serving_unit))
+        }
+
+        // Kullanıcı makroyu elle değiştirirse AI lock kalkar
+        if (['calories', 'protein_g', 'carb_g', 'fat_g'].includes(field)) {
+          setAiLocked(false)
+          setBaseValues(null)
+        }
+
+        return updated
+      })
+    }
   }
 
   async function handleEstimate() {
-    if (!form.food_name.trim()) {
-      setAiError('Önce besin adını gir.')
-      return
-    }
+    if (!form.food_name.trim()) return
     setAiError('')
     setEstimating(true)
     try {
-      const result = await estimateWithGroq(form.food_name, form.serving_size || '100', form.serving_unit || 'g')
+      const result = await estimateWithGroq(form.food_name, form.serving_unit || 'g')
       if (!result) {
         setAiError('Tahmin alınamadı. Tekrar dene veya manuel gir.')
         return
       }
-      setForm(f => ({
-        ...f,
-        calories:  String(result.calories),
-        protein_g: String(result.protein_g),
-        carb_g:    String(result.carb_g),
-        fat_g:     String(result.fat_g),
-      }))
+      setBaseValues(result)
+      setAiLocked(true)
+      const qty = parseFloat(form.serving_size) || parseFloat(defaultServing(form.serving_unit))
+      setForm(f => ({ ...f, ...scaleMacros(result, qty, f.serving_unit) }))
     } catch {
       setAiError('Bağlantı hatası. İnternet bağlantını kontrol et.')
     } finally {
@@ -150,6 +172,8 @@ export default function NutritionLog() {
       return
     }
     setError('')
+    const unit = form.serving_unit || 'g'
+    const servingFallback = unit === 'g' || unit === 'ml' ? 100 : 1
     await foodLogDb.create({
       date: today(),
       meal_type: meal,
@@ -158,8 +182,8 @@ export default function NutritionLog() {
       protein_g: parseFloat(form.protein_g) || 0,
       carb_g:    parseFloat(form.carb_g)    || 0,
       fat_g:     parseFloat(form.fat_g)     || 0,
-      serving_size: parseFloat(form.serving_size) || 100,
-      serving_unit: form.serving_unit || 'g',
+      serving_size: parseFloat(form.serving_size) || servingFallback,
+      serving_unit: unit,
       source: 'manual',
     })
     qc.invalidateQueries({ queryKey: QK.nutrition(today()) })
@@ -168,11 +192,13 @@ export default function NutritionLog() {
   }
 
   const macroFields = [
-    { label: 'Kalori',       field: 'calories'   as const, type: 'number', placeholder: '0', unit: 'kcal'},
-    { label: 'Protein',      field: 'protein_g'  as const, type: 'number', placeholder: '0', unit: 'g'   },
-    { label: 'Karbonhidrat', field: 'carb_g'     as const, type: 'number', placeholder: '0', unit: 'g'   },
-    { label: 'Yağ',          field: 'fat_g'      as const, type: 'number', placeholder: '0', unit: 'g'   },
+    { label: 'Kalori',       field: 'calories'   as const, placeholder: '0', unit: 'kcal' },
+    { label: 'Protein',      field: 'protein_g'  as const, placeholder: '0', unit: 'g'    },
+    { label: 'Karbonhidrat', field: 'carb_g'     as const, placeholder: '0', unit: 'g'    },
+    { label: 'Yağ',          field: 'fat_g'      as const, placeholder: '0', unit: 'g'    },
   ]
+
+  const canEstimate = form.food_name.trim().length > 0
 
   return (
     <div className="min-h-screen" style={{ background: C.bg, color: C.text }}>
@@ -205,7 +231,7 @@ export default function NutritionLog() {
           ))}
         </div>
 
-        {/* Besin adı + AI butonu */}
+        {/* Besin adı */}
         <div className="rounded-2xl px-5"
           style={{ background: C.surface, border: `1px solid ${C.border}` }}>
           <div className="flex items-center justify-between py-4">
@@ -221,7 +247,7 @@ export default function NutritionLog() {
           </div>
         </div>
 
-        {/* Porsiyon (AI'a göndermeden önce bilinmesi için üste taşındı) */}
+        {/* Porsiyon */}
         <div className="rounded-2xl px-5"
           style={{ background: C.surface, border: `1px solid ${C.border}` }}>
           <div className="flex items-center justify-between py-4"
@@ -230,6 +256,7 @@ export default function NutritionLog() {
             <input type="number" inputMode="decimal"
               value={form.serving_size}
               onChange={e => setF('serving_size')(e.target.value)}
+              placeholder={defaultServing(form.serving_unit)}
               className="w-20 text-right text-[14px] font-semibold bg-transparent outline-none pb-0.5"
               style={{ color: C.text, borderBottom: `1px solid ${C.border}` }} />
           </div>
@@ -252,8 +279,8 @@ export default function NutritionLog() {
         {/* AI Tahmin butonu */}
         <button
           onClick={handleEstimate}
-          disabled={estimating}
-          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-[14px] font-bold active:opacity-80 transition-opacity disabled:opacity-50"
+          disabled={estimating || !canEstimate}
+          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-[14px] font-bold active:opacity-80 transition-opacity disabled:opacity-40"
           style={{ background: C.surfaceHigh, color: C.text, border: `1px solid ${C.border}` }}
         >
           {estimating
@@ -271,15 +298,26 @@ export default function NutritionLog() {
 
         {/* Makro alanları */}
         <div className="rounded-2xl px-5"
-          style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-          {macroFields.map(({ label, field, type, placeholder, unit }, i) => (
+          style={{
+            background: C.surface,
+            border: `1px solid ${aiLocked ? C.startBorder : C.border}`,
+            transition: 'border-color 0.2s',
+          }}>
+          {aiLocked && (
+            <div className="pt-3 pb-1 px-0">
+              <p className="text-[11px] font-semibold" style={{ color: C.startText }}>
+                AI tarafından dolduruldu · elle değiştirerek düzenleyebilirsin
+              </p>
+            </div>
+          )}
+          {macroFields.map(({ label, field, placeholder, unit }, i) => (
             <div key={field} className="flex items-center justify-between py-4"
               style={i < macroFields.length - 1 ? { borderBottom: `1px solid ${C.borderSub}` } : {}}>
               <p className="text-[14px] font-semibold" style={{ color: C.text }}>{label}</p>
               <div className="flex items-center gap-1.5">
                 <input
-                  type={type}
-                  inputMode={type === 'number' ? 'decimal' : undefined}
+                  type="number"
+                  inputMode="decimal"
                   value={form[field]}
                   onChange={e => setF(field)(e.target.value)}
                   placeholder={placeholder}
@@ -292,7 +330,6 @@ export default function NutritionLog() {
           ))}
         </div>
 
-        {/* Hata */}
         {error && (
           <div className="rounded-xl px-4 py-3"
             style={{ background: C.dangerBg, border: `1px solid ${C.dangerBorder}`, color: C.danger }}>
@@ -300,7 +337,6 @@ export default function NutritionLog() {
           </div>
         )}
 
-        {/* CTA */}
         <button onClick={handleAdd}
           className="w-full py-4 rounded-2xl text-[15px] font-bold active:opacity-80 transition-opacity"
           style={{ background: C.text, color: C.bg }}>

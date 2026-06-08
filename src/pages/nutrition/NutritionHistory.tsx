@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { foodLogDb, profileDb } from '../../lib/db'
 import { today } from '../../lib/storage'
-import type { FoodLog } from '../../types'
+import { MEAL_LABELS, MEAL_ORDER } from '../../lib/mealConstants'
 
 const C = {
   bg:           '#f5f3ef',
@@ -14,30 +14,16 @@ const C = {
   text:         '#1a1714',
   textMid:      'rgba(26,23,20,0.45)',
   textLow:      'rgba(26,23,20,0.28)',
-  startText:    '#1d4ed8',
-  startBg:      'rgba(29,78,216,0.07)',
-  startBorder:  'rgba(29,78,216,0.18)',
   successText:  '#166534',
-  successBg:    'rgba(22,101,52,0.07)',
-  successBorder:'rgba(22,101,52,0.18)',
   ongoingText:  '#b45309',
-  ongoingBg:    'rgba(180,83,9,0.08)',
   danger:       '#b91c1c',
-  dangerBg:     'rgba(185,28,28,0.07)',
-  dangerBorder: 'rgba(185,28,28,0.2)',
 }
-
-const MEAL_LABELS: Record<string, string> = {
-  breakfast: 'Kahvaltı',
-  lunch: 'Öğle',
-  dinner: 'Akşam',
-  snack: 'Ara Öğün',
-}
+import type { FoodLog } from '../../types'
 
 function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr + 'T12:00:00')
-  d.setDate(d.getDate() + days)
-  return d.toISOString().split('T')[0]
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const date = new Date(y, m - 1, d + days)
+  return date.toISOString().split('T')[0]
 }
 
 function startOfMonth(dateStr: string): string {
@@ -50,14 +36,16 @@ function daysInMonth(dateStr: string): number {
 }
 
 function monthLabel(dateStr: string): string {
-  return new Date(dateStr + 'T12:00:00').toLocaleDateString('tr-TR', {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('tr-TR', {
     month: 'long', year: 'numeric',
   })
 }
 
 function dayOfWeek(dateStr: string): number {
-  const d = new Date(dateStr + 'T12:00:00').getDay()
-  return d === 0 ? 6 : d - 1 // Pazartesi=0
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const day = new Date(y, m - 1, d).getDay()
+  return day === 0 ? 6 : day - 1 // Pazartesi=0
 }
 
 interface DaySummary {
@@ -68,7 +56,7 @@ interface DaySummary {
 
 export default function NutritionHistory() {
   const navigate = useNavigate()
-  const [calGoal, setCalGoal] = useState(2200)
+  const [calGoal, setCalGoal] = useState<number | null>(null)
   const [summaries, setSummaries] = useState<Map<string, DaySummary>>(new Map())
   const [monthStart, setMonthStart] = useState(() => startOfMonth(today()))
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
@@ -78,6 +66,7 @@ export default function NutritionHistory() {
     async function load() {
       const [profile, allLogs] = await Promise.all([profileDb.get(), foodLogDb.getAll()])
       if (profile) setCalGoal(profile.daily_calorie_goal)
+      else setCalGoal(2200)
       const map = new Map<string, DaySummary>()
       for (const log of allLogs) {
         const existing = map.get(log.date)
@@ -95,15 +84,15 @@ export default function NutritionHistory() {
   }
 
   function prevMonth() {
-    const d = new Date(monthStart + 'T12:00:00')
-    d.setMonth(d.getMonth() - 1)
-    setMonthStart(d.toISOString().split('T')[0].slice(0, 7) + '-01')
+    const [y, m] = monthStart.split('-').map(Number)
+    const prev = new Date(y, m - 2, 1)
+    setMonthStart(`${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-01`)
   }
 
   function nextMonth() {
-    const d = new Date(monthStart + 'T12:00:00')
-    d.setMonth(d.getMonth() + 1)
-    setMonthStart(d.toISOString().split('T')[0].slice(0, 7) + '-01')
+    const [y, m] = monthStart.split('-').map(Number)
+    const next = new Date(y, m, 1)
+    setMonthStart(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`)
   }
 
   const todayStr = today()
@@ -116,19 +105,20 @@ export default function NutritionHistory() {
   while (calendarCells.length % 7 !== 0) calendarCells.push(null)
 
   const selectedTotal = selectedLogs.reduce((s, f) => s + f.calories, 0)
-  const selectedByMeal = selectedLogs.reduce((acc, f) => {
-    if (!acc[f.meal_type]) acc[f.meal_type] = []
-    acc[f.meal_type].push(f)
+  const selectedByMeal = MEAL_ORDER.reduce((acc, mealType) => {
+    const foods = selectedLogs.filter(f => f.meal_type === mealType)
+    if (foods.length > 0) acc[mealType] = foods
     return acc
   }, {} as Record<string, FoodLog[]>)
 
-  // Dot colors using theme
   const DOT_COLORS = {
-    success: C.successText,   // hedef tuttu
-    ongoing: C.ongoingText,   // eksik
-    danger:  C.danger,        // aştı
-    empty:   C.textLow,       // giriş yok
+    success: C.successText,
+    ongoing: C.ongoingText,
+    danger:  C.danger,
   }
+
+  // Takvim yüklenirken nokta renkleri calGoal'a bağlı, null iken render etme
+  const goalReady = calGoal !== null
 
   return (
     <div className="min-h-screen" style={{ background: C.bg, color: C.text }}>
@@ -181,11 +171,11 @@ export default function NutritionHistory() {
               const isToday = date === todayStr
               const isFuture = date > todayStr
               const isSelected = date === selectedDate
-              const calPct = summary ? Math.min(summary.calories / calGoal, 1) : 0
-              const over = summary ? summary.calories > calGoal : false
+              const calPct = goalReady && summary ? Math.min(summary.calories / calGoal!, 1) : 0
+              const over = goalReady && summary ? summary.calories > calGoal! : false
 
-              let dotColor = DOT_COLORS.empty
-              if (summary?.hasLogs) {
+              let dotColor = C.textLow
+              if (goalReady && summary?.hasLogs) {
                 dotColor = over ? DOT_COLORS.danger : calPct >= 0.8 ? DOT_COLORS.success : DOT_COLORS.ongoing
               }
 
@@ -202,7 +192,7 @@ export default function NutritionHistory() {
                   style={{
                     background: cellBg,
                     opacity: isFuture ? 0.25 : 1,
-                    cursor: isFuture ? 'default' : 'pointer',
+                    cursor: isFuture ? 'not-allowed' : 'pointer',
                   }}
                 >
                   <span
@@ -231,7 +221,7 @@ export default function NutritionHistory() {
               { color: DOT_COLORS.success, label: 'Hedef tuttu' },
               { color: DOT_COLORS.ongoing, label: 'Eksik' },
               { color: DOT_COLORS.danger,  label: 'Aştı' },
-              { color: DOT_COLORS.empty,   label: 'Giriş yok' },
+              { color: C.textLow,          label: 'Giriş yok' },
             ].map(({ color, label }) => (
               <div key={label} className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
@@ -250,13 +240,16 @@ export default function NutritionHistory() {
             <div className="px-5 py-4" style={{ borderBottom: `1px solid ${C.borderSub}` }}>
               <div className="flex items-center justify-between">
                 <p className="text-sm font-bold capitalize" style={{ color: C.text }}>
-                  {new Date(selectedDate + 'T12:00:00').toLocaleDateString('tr-TR', {
-                    weekday: 'long', day: 'numeric', month: 'long',
-                  })}
+                  {(() => {
+                    const [y, m, d] = selectedDate.split('-').map(Number)
+                    return new Date(y, m - 1, d).toLocaleDateString('tr-TR', {
+                      weekday: 'long', day: 'numeric', month: 'long',
+                    })
+                  })()}
                 </p>
                 <span
                   className="text-sm font-bold"
-                  style={{ color: selectedTotal > calGoal ? C.danger : C.textMid }}
+                  style={{ color: calGoal && selectedTotal > calGoal ? C.danger : C.textMid }}
                 >
                   {Math.round(selectedTotal)} kcal
                 </span>
@@ -282,7 +275,7 @@ export default function NutritionHistory() {
                       className="text-[11px] font-semibold uppercase tracking-widest"
                       style={{ color: C.textLow }}
                     >
-                      {MEAL_LABELS[mealType] ?? mealType}
+                      {MEAL_LABELS[mealType as keyof typeof MEAL_LABELS] ?? mealType}
                     </p>
                     <p className="text-xs font-medium" style={{ color: C.textLow }}>
                       {Math.round(foods.reduce((s, f) => s + f.calories, 0))} kcal
