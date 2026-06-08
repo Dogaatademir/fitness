@@ -5,6 +5,28 @@ import { foodLogDb } from '../../lib/db'
 import { today } from '../../lib/storage'
 import type { MealType, FoodLog } from '../../types'
 
+const C = {
+  bg:           '#f5f3ef',
+  surface:      '#ffffff',
+  surfaceHigh:  '#f0ede8',
+  border:       'rgba(0,0,0,0.07)',
+  borderSub:    'rgba(0,0,0,0.04)',
+  text:         '#1a1714',
+  textMid:      'rgba(26,23,20,0.45)',
+  textLow:      'rgba(26,23,20,0.28)',
+  startText:    '#1d4ed8',
+  startBg:      'rgba(29,78,216,0.07)',
+  startBorder:  'rgba(29,78,216,0.18)',
+  successText:  '#166534',
+  successBg:    'rgba(22,101,52,0.07)',
+  successBorder:'rgba(22,101,52,0.18)',
+  ongoingText:  '#b45309',
+  ongoingBg:    'rgba(180,83,9,0.08)',
+  danger:       '#b91c1c',
+  dangerBg:     'rgba(185,28,28,0.07)',
+  dangerBorder: 'rgba(185,28,28,0.2)',
+}
+
 const MEAL_LABELS: Record<MealType, string> = {
   breakfast: 'Kahvaltı',
   lunch: 'Öğle',
@@ -156,11 +178,12 @@ export default function NutritionScan() {
   const macros = result ? scaledMacros(result, s) : null
 
   return (
-    <div className="min-h-screen bg-[#f7f5f2] text-stone-900">
+    <div className="min-h-screen" style={{ background: C.bg, color: C.text }}>
       <div className="px-5 pt-14 pb-4">
         <button
           onClick={() => { stopCamera(); navigate(-1) }}
-          className="text-xs text-stone-400 font-semibold mb-3 flex items-center gap-1 active:text-stone-600"
+          className="text-xs font-semibold mb-3 flex items-center gap-1 active:opacity-60 transition-opacity"
+          style={{ color: C.textLow }}
         >
           ← Geri
         </button>
@@ -169,15 +192,24 @@ export default function NutritionScan() {
 
       <div className="px-4 pb-10 space-y-3">
         {!supported ? (
-          <div className="rounded-2xl bg-amber-50 border border-amber-100 p-6 text-center">
-            <Zap size={24} className="text-amber-400 mx-auto mb-3" />
-            <p className="text-sm font-bold text-amber-900 mb-2">Barkod okuyucu desteklenmiyor</p>
-            <p className="text-sm text-amber-700 mb-4 leading-relaxed">
+          <div
+            className="rounded-2xl p-6 text-center"
+            style={{
+              background: C.ongoingBg,
+              border: `1px solid rgba(180,83,9,0.18)`,
+            }}
+          >
+            <Zap size={24} className="mx-auto mb-3" style={{ color: C.ongoingText }} />
+            <p className="text-sm font-bold mb-2" style={{ color: C.ongoingText }}>
+              Barkod okuyucu desteklenmiyor
+            </p>
+            <p className="text-sm mb-4 leading-relaxed" style={{ color: C.ongoingText }}>
               Tarayıcın BarcodeDetector API'yi desteklemiyor. Chrome 88+ veya Safari 17.4+ gerekiyor.
             </p>
             <button
               onClick={() => navigate('/nutrition/log')}
-              className="px-5 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-semibold active:bg-amber-600"
+              className="px-5 py-2.5 rounded-xl text-sm font-semibold active:opacity-80 transition-opacity"
+              style={{ background: C.text, color: C.bg }}
             >
               Manuel Giriş Yap
             </button>
@@ -185,7 +217,7 @@ export default function NutritionScan() {
         ) : !result ? (
           <>
             {/* Kamera görüntüsü */}
-            <div className="relative rounded-2xl overflow-hidden bg-slate-900 aspect-square shadow-md">
+            <div className="relative rounded-2xl overflow-hidden bg-black aspect-square">
               <video
                 ref={videoRef}
                 playsInline
@@ -194,7 +226,6 @@ export default function NutritionScan() {
               />
               {scanning && (
                 <>
-                  {/* Tarama animasyonu */}
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-56 h-56 relative">
                       <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-white rounded-tl-lg" />
@@ -211,7 +242,7 @@ export default function NutritionScan() {
                 </>
               )}
               {fetching && (
-                <div className="absolute inset-0 bg-slate-900/70 flex flex-col items-center justify-center gap-3">
+                <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-3">
                   <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
                   <p className="text-white text-sm font-medium">Ürün aranıyor…</p>
                 </div>
@@ -219,14 +250,28 @@ export default function NutritionScan() {
             </div>
 
             {error && (
-              <div className="rounded-2xl bg-red-50 border border-red-100 p-4">
-                <p className="text-sm text-red-700 font-medium">{error}</p>
+              <div
+                className="rounded-2xl p-4"
+                style={{
+                  background: C.dangerBg,
+                  border: `1px solid ${C.dangerBorder}`,
+                }}
+              >
+                <p className="text-sm font-medium" style={{ color: C.danger }}>{error}</p>
                 <div className="flex gap-2 mt-3">
-                  <button onClick={rescan} className="text-xs font-semibold text-red-600 underline underline-offset-2">
+                  <button
+                    onClick={rescan}
+                    className="text-xs font-semibold underline underline-offset-2"
+                    style={{ color: C.danger }}
+                  >
                     Tekrar dene
                   </button>
-                  <span className="text-red-300">·</span>
-                  <button onClick={() => navigate('/nutrition/log')} className="text-xs font-semibold text-red-600 underline underline-offset-2">
+                  <span style={{ color: C.dangerBorder }}>·</span>
+                  <button
+                    onClick={() => navigate('/nutrition/log')}
+                    className="text-xs font-semibold underline underline-offset-2"
+                    style={{ color: C.danger }}
+                  >
                     Manuel gir
                   </button>
                 </div>
@@ -236,20 +281,40 @@ export default function NutritionScan() {
         ) : (
           <>
             {/* Ürün bulundu */}
-            <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-5">
+            <div
+              className="rounded-2xl p-5"
+              style={{
+                background: C.successBg,
+                border: `1px solid ${C.successBorder}`,
+              }}
+            >
               <div className="flex items-center gap-2 mb-1">
-                <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+                <div
+                  className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
+                  style={{ background: C.successText }}
+                >
                   <Check size={11} strokeWidth={2.5} className="text-white" />
                 </div>
-                <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">Ürün Bulundu</p>
+                <p
+                  className="text-[11px] font-semibold uppercase tracking-widest"
+                  style={{ color: C.successText }}
+                >
+                  Ürün Bulundu
+                </p>
               </div>
-              <p className="text-base font-bold text-emerald-900 mt-2">{result.food_name}</p>
-              <p className="text-xs text-emerald-600 mt-1">Barkod: {result.barcode}</p>
+              <p className="text-base font-bold mt-2" style={{ color: C.successText }}>{result.food_name}</p>
+              <p className="text-xs mt-1" style={{ color: C.successText }}>Barkod: {result.barcode}</p>
             </div>
 
             {/* Makrolar (100g baz) */}
-            <div className="rounded-2xl bg-white border border-stone-100 shadow-sm p-5">
-              <p className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-3">
+            <div
+              className="rounded-2xl p-5"
+              style={{ background: C.surface, border: `1px solid ${C.border}` }}
+            >
+              <p
+                className="text-[11px] font-semibold uppercase tracking-widest mb-3"
+                style={{ color: C.textLow }}
+              >
                 100g / 100ml başına
               </p>
               <div className="grid grid-cols-4 gap-2 text-center">
@@ -259,28 +324,39 @@ export default function NutritionScan() {
                   { label: 'Karb', value: result.carb_g ?? 0, unit: 'g' },
                   { label: 'Yağ', value: result.fat_g ?? 0, unit: 'g' },
                 ].map(({ label, value, unit }) => (
-                  <div key={label} className="bg-stone-50 rounded-xl py-3">
-                    <p className="text-base font-bold text-stone-900">{value}</p>
-                    <p className="text-[10px] text-stone-400 mt-0.5 font-medium">{unit}</p>
-                    <p className="text-[9px] text-stone-300 mt-0.5">{label}</p>
+                  <div key={label} className="rounded-xl py-3" style={{ background: C.surfaceHigh }}>
+                    <p className="text-base font-bold" style={{ color: C.text }}>{value}</p>
+                    <p className="text-[10px] mt-0.5 font-medium" style={{ color: C.textMid }}>{unit}</p>
+                    <p className="text-[9px] mt-0.5" style={{ color: C.textLow }}>{label}</p>
                   </div>
                 ))}
               </div>
             </div>
 
             {/* Öğün + porsiyon */}
-            <div className="rounded-2xl bg-white border border-stone-100 shadow-sm px-5">
+            <div
+              className="rounded-2xl px-5"
+              style={{ background: C.surface, border: `1px solid ${C.border}` }}
+            >
               {/* Öğün */}
-              <div className="py-4 border-b border-stone-100">
-                <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-2">Öğün</p>
+              <div className="py-4" style={{ borderBottom: `1px solid ${C.borderSub}` }}>
+                <p
+                  className="text-[11px] font-semibold uppercase tracking-widest mb-2"
+                  style={{ color: C.textLow }}
+                >
+                  Öğün
+                </p>
                 <div className="flex gap-1">
                   {(Object.keys(MEAL_LABELS) as MealType[]).map(m => (
                     <button
                       key={m}
                       onClick={() => setMeal(m)}
-                      className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-colors ${
-                        meal === m ? 'bg-slate-800 text-white' : 'text-stone-400 bg-stone-50'
-                      }`}
+                      className="flex-1 py-2 rounded-xl text-xs font-semibold transition-colors"
+                      style={
+                        meal === m
+                          ? { background: C.text, color: C.bg }
+                          : { background: C.surfaceHigh, color: C.textMid }
+                      }
                     >
                       {MEAL_LABELS[m]}
                     </button>
@@ -290,7 +366,10 @@ export default function NutritionScan() {
 
               {/* Porsiyon */}
               <div className="py-4">
-                <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-2">
+                <p
+                  className="text-[11px] font-semibold uppercase tracking-widest mb-2"
+                  style={{ color: C.textLow }}
+                >
                   Porsiyon ({result.serving_unit ?? 'g'})
                 </p>
                 <div className="flex items-center gap-3">
@@ -299,15 +378,20 @@ export default function NutritionScan() {
                     inputMode="decimal"
                     value={serving}
                     onChange={e => setServing(e.target.value)}
-                    className="flex-1 text-center text-2xl font-bold text-stone-900 bg-stone-50 rounded-xl py-3 outline-none border border-stone-100 focus:border-slate-300"
+                    className="flex-1 text-center text-2xl font-bold rounded-xl py-3 outline-none"
+                    style={{
+                      background: C.surfaceHigh,
+                      color: C.text,
+                      border: `1px solid ${C.border}`,
+                    }}
                   />
                   <div className="flex-1 text-center">
-                    <p className="text-2xl font-bold text-stone-900">{macros?.calories}</p>
-                    <p className="text-xs text-stone-400 mt-0.5">kcal</p>
+                    <p className="text-2xl font-bold" style={{ color: C.text }}>{macros?.calories}</p>
+                    <p className="text-xs mt-0.5" style={{ color: C.textLow }}>kcal</p>
                   </div>
                 </div>
                 {macros && (
-                  <p className="text-xs text-stone-400 text-center mt-2">
+                  <p className="text-xs text-center mt-2" style={{ color: C.textLow }}>
                     P {macros.protein_g}g · K {macros.carb_g}g · Y {macros.fat_g}g
                   </p>
                 )}
@@ -316,7 +400,8 @@ export default function NutritionScan() {
 
             <button
               onClick={addFood}
-              className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-slate-800 text-white font-bold text-base active:bg-slate-700 transition-colors shadow-md"
+              className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl font-bold text-base active:opacity-80 transition-opacity"
+              style={{ background: C.text, color: C.bg }}
             >
               <Check size={16} />
               Ekle
@@ -324,7 +409,8 @@ export default function NutritionScan() {
 
             <button
               onClick={rescan}
-              className="w-full py-3 text-sm text-stone-400 font-medium"
+              className="w-full py-3 text-sm font-medium"
+              style={{ color: C.textMid }}
             >
               Farklı ürün tara
             </button>

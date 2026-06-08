@@ -1,14 +1,29 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Plus, Trash2, Edit2, X, Dumbbell, Activity, Timer } from 'lucide-react'
+import { Plus, Trash2, Edit2, X, Dumbbell, Activity, Timer, Check } from 'lucide-react'
 import { programDb, programDayDb, exerciseDb } from '../../lib/db'
 import { supabase, getUserId } from '../../lib/supabase'
 import type { Program, ProgramDay, Exercise } from '../../types'
 
+const C = {
+  bg:          '#f5f3ef',
+  surface:     '#ffffff',
+  surfaceHigh: '#f0ede8',
+  border:      'rgba(0,0,0,0.07)',
+  borderSub:   'rgba(0,0,0,0.04)',
+  text:        '#1a1714',
+  textMid:     'rgba(26,23,20,0.45)',
+  textLow:     'rgba(26,23,20,0.28)',
+  successText: '#166534',
+  successBg:   'rgba(22,101,52,0.07)',
+  successBorder:'rgba(22,101,52,0.18)',
+  danger:      '#b91c1c',
+  dangerBg:    'rgba(185,28,28,0.07)',
+  dangerBorder:'rgba(185,28,28,0.2)',
+}
 
 const MUSCLE_GROUPS = ['Göğüs', 'Sırt', 'Omuz', 'Biceps', 'Triceps', 'Karın', 'Bacak', 'Arka Bacak', 'Kardiyo', 'Diğer']
 type ExType = 'strength' | 'cardio' | 'timed'
-
 type ModalState =
   | { type: 'addDay' }
   | { type: 'addExercise'; dayId: string }
@@ -33,35 +48,46 @@ function exTarget(ex: Exercise): string {
   return `${sets}×${reps}${ex.rest_seconds ? ` · ${ex.rest_seconds}sn` : ''}`
 }
 
-const INPUT = 'w-full px-3.5 py-2.5 rounded-xl border border-stone-200 bg-stone-50 text-sm font-medium text-stone-800 outline-none focus:border-slate-400 focus:bg-white transition-all'
-const BTN_PRIMARY = 'w-full h-11 rounded-xl bg-slate-700 text-white font-bold text-sm tracking-wide transition-colors active:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed'
-const BTN_GHOST = 'flex-1 h-11 rounded-xl border border-stone-200 text-stone-600 font-semibold text-sm transition-colors active:bg-stone-50'
-const BTN_DANGER = 'flex-1 h-11 rounded-xl bg-red-500 text-white font-bold text-sm transition-colors active:bg-red-600'
+const INPUT = `w-full px-3.5 py-3 rounded-xl text-[14px] font-medium outline-none transition-all`
+const SELECT = `w-full px-3.5 py-3 rounded-xl text-[14px] font-medium outline-none transition-all appearance-none`
 
-function Modal({ children, zIndex = 'z-50' }: { children: React.ReactNode; onClose: () => void; zIndex?: string }) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className={`fixed inset-0 ${zIndex} flex items-center justify-center bg-stone-900/40 backdrop-blur-sm p-4`}>
-      <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl">{children}</div>
+    <div>
+      <label className="text-[11px] font-semibold uppercase tracking-widest block mb-1.5"
+        style={{ color: C.textLow }}>
+        {label}
+      </label>
+      {children}
+    </div>
+  )
+}
+
+function ModalShell({ children, onClose, zIndex = 'z-50' }: {
+  children: React.ReactNode; onClose: () => void; zIndex?: string
+}) {
+  return (
+    <div className={`fixed inset-0 ${zIndex} flex items-center justify-center p-4`}
+      style={{ background: 'rgba(0,0,0,0.25)' }}
+      onClick={onClose}>
+      <div className="w-full max-w-sm rounded-3xl p-6 max-h-[85vh] overflow-y-auto"
+        style={{ background: C.surface, border: `1px solid ${C.border}` }}
+        onClick={e => e.stopPropagation()}>
+        {children}
+      </div>
     </div>
   )
 }
 
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
-    <div className="flex justify-between items-center mb-5">
-      <h3 className="text-base font-bold text-stone-900">{title}</h3>
-      <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full bg-stone-100 text-stone-500">
+    <div className="flex items-center justify-between mb-5">
+      <p className="text-[17px] font-extrabold" style={{ color: C.text }}>{title}</p>
+      <button onClick={onClose}
+        className="w-7 h-7 flex items-center justify-center rounded-full active:scale-95 transition-transform"
+        style={{ background: C.surfaceHigh, color: C.textMid }}>
         <X size={14} />
       </button>
-    </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block mb-1.5">{label}</label>
-      {children}
     </div>
   )
 }
@@ -90,8 +116,7 @@ export default function ProgramDetail() {
     if (!id) return
     const userId = await getUserId()
     const { data } = await supabase.rpc('get_program_detail', {
-      p_user_id: userId,
-      p_program_id: id,
+      p_user_id: userId, p_program_id: id,
     })
     if (!data) { navigate('/programs'); return }
     const r = data as { program: Program; days: (ProgramDay & { exercises: Exercise[] | null })[] }
@@ -166,88 +191,140 @@ export default function ProgramDetail() {
     navigate('/programs')
   }
 
-  if (!program) return <div className="min-h-screen bg-[#f7f5f2]" />
+  if (!program) return <div className="min-h-screen" style={{ background: C.bg }} />
 
   const totalExercises = Object.values(exercises).reduce((s, exs) => s + exs.length, 0)
 
+  const inputStyle = { background: C.surfaceHigh, border: `1px solid ${C.border}`, color: C.text }
+
   return (
-    <div className="min-h-screen bg-[#f7f5f2] text-stone-900 pb-10">
-      <div className="sticky top-0 z-10 bg-[#f7f5f2]/95 backdrop-blur-md border-b border-stone-100/80 px-5 pt-14 pb-4">
+    <div className="min-h-screen pb-10" style={{ background: C.bg, color: C.text }}>
+      {/* Header */}
+      <div className="sticky top-0 z-10 backdrop-blur-md px-5 pt-14 pb-4"
+        style={{ background: 'rgba(245,243,239,0.95)', borderBottom: `1px solid ${C.borderSub}` }}>
         <div className="flex items-center justify-between mb-3">
-          <button onClick={() => navigate('/programs')} className="w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-stone-100 shadow-sm text-stone-500">
-            <ArrowLeft size={18} />
+          <button onClick={() => navigate('/programs')}
+            className="flex items-center gap-1 text-[12px] font-semibold active:opacity-60 transition-opacity"
+            style={{ color: C.textLow }}>
+            ← Geri
           </button>
           <div className="flex items-center gap-2">
             {!program.is_active && (
               <button
                 onClick={async () => { await programDb.setActive(program.id); load() }}
-                className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-100"
+                className="px-3 py-1.5 rounded-lg text-[11px] font-bold active:scale-95 transition-transform"
+                style={{ background: C.successBg, color: C.successText, border: `1px solid ${C.successBorder}` }}
               >
                 Aktif Yap
               </button>
             )}
-            <button onClick={() => setModal({ type: 'deleteProgram' })} className="w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-red-100 text-red-400 shadow-sm">
+            <button
+              onClick={() => setModal({ type: 'deleteProgram' })}
+              className="w-9 h-9 flex items-center justify-center rounded-xl active:scale-95 transition-transform"
+              style={{ background: C.dangerBg, border: `1px solid ${C.dangerBorder}`, color: C.danger }}
+            >
               <Trash2 size={15} />
             </button>
           </div>
         </div>
         <div className="flex items-center gap-2.5">
-          <h1 className="text-[22px] font-bold tracking-tight text-stone-900 leading-tight truncate">{program.name}</h1>
+          <h1 className="text-[22px] font-extrabold tracking-tight leading-tight truncate" style={{ color: C.text }}>
+            {program.name}
+          </h1>
           {program.is_active && (
-            <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 text-[9px] font-bold tracking-wider uppercase flex-shrink-0">Aktif</span>
+            <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold tracking-wider uppercase flex-shrink-0"
+              style={{ background: C.successBg, color: C.successText, border: `1px solid ${C.successBorder}` }}>
+              Aktif
+            </span>
           )}
         </div>
-        <p className="text-xs text-stone-400 mt-1 font-medium">
+        <p className="text-[12px] mt-1" style={{ color: C.textMid }}>
           {program.description ? `${program.description} · ` : ''}
           {days.length} gün · {totalExercises} egzersiz
         </p>
       </div>
 
-      <div className="px-4 mt-5 space-y-4">
+      <div className="px-4 mt-4 space-y-3">
+        {/* Boş durum */}
         {days.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-stone-100 flex items-center justify-center mb-4">
-              <Dumbbell size={24} className="text-stone-300" />
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+              style={{ background: C.surfaceHigh }}>
+              <Dumbbell size={22} style={{ color: C.textLow }} />
             </div>
-            <p className="text-sm font-semibold text-stone-500">Henüz gün eklenmemiş</p>
-            <p className="text-xs text-stone-400 mt-1">Antrenman günlerini ekleyerek başla</p>
+            <p className="text-[14px] font-semibold" style={{ color: C.textMid }}>Henüz gün eklenmemiş</p>
+            <p className="text-[12px] mt-1" style={{ color: C.textLow }}>
+              Antrenman günlerini ekleyerek başla
+            </p>
           </div>
         )}
 
+        {/* Gün kartları */}
         {days.map((day, di) => {
           const dayExs = exercises[day.id] || []
           return (
-            <div key={day.id} className="rounded-2xl bg-white border border-stone-100 shadow-sm overflow-hidden">
-              <div className="px-4 py-3.5 flex items-center justify-between bg-stone-50/60 border-b border-stone-100">
+            <div key={day.id} className="rounded-2xl overflow-hidden"
+              style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+              {/* Gün başlığı */}
+              <div className="px-5 py-3.5 flex items-center justify-between"
+                style={{ borderBottom: `1px solid ${C.borderSub}`, background: C.surfaceHigh }}>
                 <div>
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-[9px] uppercase tracking-[0.12em] font-bold text-stone-400">{di + 1}. Gün</span>
-                  </div>
-                  <h3 className="text-[15px] font-bold text-stone-900">{day.day_name}</h3>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest mb-0.5"
+                    style={{ color: C.textLow }}>
+                    {di + 1}. Gün
+                  </p>
+                  <p className="text-[15px] font-bold" style={{ color: C.text }}>{day.day_name}</p>
                 </div>
-                <button onClick={() => setModal({ type: 'deleteDay', dayId: day.id, dayName: day.day_name })} className="p-2 text-stone-300 hover:text-red-400 transition-colors rounded-lg hover:bg-red-50">
+                <button
+                  onClick={() => setModal({ type: 'deleteDay', dayId: day.id, dayName: day.day_name })}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg active:scale-95 transition-transform"
+                  style={{ color: C.textLow }}>
                   <Trash2 size={14} />
                 </button>
               </div>
 
+              {/* Egzersizler */}
               {dayExs.length === 0 ? (
-                <div className="px-4 py-5 text-center"><p className="text-xs text-stone-300 italic">Egzersiz eklenmemiş</p></div>
+                <div className="px-5 py-4 text-center">
+                  <p className="text-[12px]" style={{ color: C.textLow }}>Egzersiz eklenmemiş</p>
+                </div>
               ) : (
-                <div className="divide-y divide-stone-50">
+                <div>
                   {dayExs.map((ex, ei) => (
-                    <div key={ex.id} className="px-4 py-3.5 flex items-center gap-3 hover:bg-stone-50 transition-colors">
-                      <span className="w-5 h-5 rounded-md bg-stone-100 text-stone-400 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{ei + 1}</span>
-                      {ex.type === 'cardio' ? <Activity size={13} className="text-amber-400 flex-shrink-0" />
-                        : ex.type === 'timed' ? <Timer size={13} className="text-violet-400 flex-shrink-0" />
-                        : <Dumbbell size={13} className="text-slate-400 flex-shrink-0" />}
+                    <div key={ex.id}
+                      className="px-5 py-3.5 flex items-center gap-3"
+                      style={ei > 0 ? { borderTop: `1px solid ${C.borderSub}` } : undefined}>
+                      {/* Sıra no */}
+                      <span className="w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center flex-shrink-0"
+                        style={{ background: C.surfaceHigh, color: C.textLow }}>
+                        {ei + 1}
+                      </span>
+                      {/* Tip ikonu */}
+                      {ex.type === 'cardio'
+                        ? <Activity size={13} style={{ color: '#b45309', flexShrink: 0 }} />
+                        : ex.type === 'timed'
+                          ? <Timer size={13} style={{ color: '#7c3aed', flexShrink: 0 }} />
+                          : <Dumbbell size={13} style={{ color: C.textLow, flexShrink: 0 }} />}
+                      {/* İçerik */}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-stone-800 truncate">{ex.name}</p>
+                        <p className="text-[14px] font-semibold truncate" style={{ color: C.text }}>
+                          {ex.name}
+                        </p>
                         <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="text-[9px] bg-stone-100 text-stone-400 px-1.5 py-0.5 rounded font-bold">{ex.muscle_group}</span>
-                          <span className="text-[11px] text-stone-400 font-medium">{exTarget(ex)}</span>
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
+                            style={{ background: C.surfaceHigh, color: C.textLow }}>
+                            {ex.muscle_group}
+                          </span>
+                          <span className="text-[11px] font-medium" style={{ color: C.textMid }}>
+                            {exTarget(ex)}
+                          </span>
                         </div>
                       </div>
-                      <button onClick={() => setEditingEx(ex)} className="p-1.5 text-stone-300 hover:text-slate-600 transition-colors rounded-lg hover:bg-stone-100 flex-shrink-0">
+                      {/* Düzenle */}
+                      <button
+                        onClick={() => setEditingEx(ex)}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg active:scale-95 transition-transform flex-shrink-0"
+                        style={{ color: C.textLow }}>
                         <Edit2 size={13} />
                       </button>
                     </div>
@@ -255,171 +332,303 @@ export default function ProgramDetail() {
                 </div>
               )}
 
+              {/* Egzersiz ekle */}
               <button
                 onClick={() => { setNewEx(defaultNew()); setModal({ type: 'addExercise', dayId: day.id }) }}
-                className="w-full py-3.5 flex items-center justify-center gap-1.5 text-xs font-semibold text-stone-400 hover:text-slate-600 hover:bg-stone-50 transition-colors border-t border-stone-100"
+                className="w-full py-3.5 flex items-center justify-center gap-1.5 text-[12px] font-semibold active:bg-black/[0.02] transition-colors"
+                style={{ borderTop: `1px solid ${C.borderSub}`, color: C.textLow }}
               >
-                <Plus size={13} />Egzersiz Ekle
+                <Plus size={13} />
+                Egzersiz Ekle
               </button>
             </div>
           )
         })}
 
+        {/* Yeni gün ekle */}
         <button
           onClick={() => { setDayNameInput(''); setModal({ type: 'addDay' }) }}
-          className="w-full py-4 border-2 border-dashed border-stone-200 rounded-2xl text-stone-400 font-semibold text-sm hover:border-slate-400 hover:text-slate-600 transition-colors flex items-center justify-center gap-2"
+          className="w-full py-4 rounded-2xl text-[13px] font-semibold flex items-center justify-center gap-2 active:scale-[0.985] transition-transform"
+          style={{ border: `1.5px dashed ${C.border}`, color: C.textLow }}
         >
-          <Plus size={16} />Yeni Gün Ekle
+          <Plus size={15} />
+          Yeni Gün Ekle
         </button>
       </div>
 
-      {/* Modals */}
+      {/* ── Gün Ekle Modal ── */}
       {modal?.type === 'addDay' && (
-        <Modal onClose={() => setModal(null)}>
+        <ModalShell onClose={() => setModal(null)}>
           <ModalHeader title="Yeni Gün Ekle" onClose={() => setModal(null)} />
           <div className="space-y-4">
             <Field label="Gün Adı">
-              <input type="text" autoFocus placeholder="İtiş, Çekiş, Bacak…" value={dayNameInput}
-                onChange={e => setDayNameInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddDay()} className={INPUT} />
+              <input type="text" autoFocus placeholder="İtiş, Çekiş, Bacak…"
+                value={dayNameInput}
+                onChange={e => setDayNameInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddDay()}
+                className={INPUT} style={inputStyle} />
             </Field>
-            <button onClick={handleAddDay} disabled={!dayNameInput.trim()} className={BTN_PRIMARY}>Ekle</button>
+            <button onClick={handleAddDay} disabled={!dayNameInput.trim()}
+              className="w-full h-11 rounded-xl text-[14px] font-bold active:opacity-80 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              style={{ background: C.text, color: C.bg }}>
+              Ekle
+            </button>
           </div>
-        </Modal>
+        </ModalShell>
       )}
 
+      {/* ── Egzersiz Ekle Modal ── */}
       {modal?.type === 'addExercise' && (
-        <Modal onClose={() => setModal(null)}>
+        <ModalShell onClose={() => setModal(null)}>
           <ModalHeader title="Egzersiz Ekle" onClose={() => setModal(null)} />
-          <div className="space-y-4">
+          <div className="space-y-3">
             <Field label="Egzersiz Adı">
-              <input type="text" autoFocus placeholder="Bench Press, Squat…" value={newEx.name}
-                onChange={e => setNewEx(v => ({ ...v, name: e.target.value }))} className={INPUT} />
+              <input type="text" autoFocus placeholder="Bench Press, Squat…"
+                value={newEx.name}
+                onChange={e => setNewEx(v => ({ ...v, name: e.target.value }))}
+                className={INPUT} style={inputStyle} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Tür">
-                <select value={newEx.type} onChange={e => setNewEx(v => ({ ...v, type: e.target.value as ExType }))} className={INPUT}>
+                <select value={newEx.type}
+                  onChange={e => setNewEx(v => ({ ...v, type: e.target.value as ExType }))}
+                  className={SELECT} style={inputStyle}>
                   <option value="strength">Ağırlık</option>
                   <option value="cardio">Kardiyo</option>
                   <option value="timed">Zamanlı</option>
                 </select>
               </Field>
               <Field label="Kas Grubu">
-                <select value={newEx.muscle_group} onChange={e => setNewEx(v => ({ ...v, muscle_group: e.target.value }))} className={INPUT}>
+                <select value={newEx.muscle_group}
+                  onChange={e => setNewEx(v => ({ ...v, muscle_group: e.target.value }))}
+                  className={SELECT} style={inputStyle}>
                   {MUSCLE_GROUPS.map(mg => <option key={mg} value={mg}>{mg}</option>)}
                 </select>
               </Field>
             </div>
             {newEx.type === 'strength' && (
               <>
-                <div className="grid grid-cols-3 gap-3">
-                  <Field label="Set"><input type="number" min={1} value={newEx.target_sets} onChange={e => setNewEx(v => ({ ...v, target_sets: +e.target.value }))} className={INPUT} /></Field>
-                  <Field label="Min Tek."><input type="number" min={1} value={newEx.target_reps_min} onChange={e => setNewEx(v => ({ ...v, target_reps_min: +e.target.value }))} className={INPUT} /></Field>
-                  <Field label="Max Tek."><input type="number" min={1} value={newEx.target_reps_max} onChange={e => setNewEx(v => ({ ...v, target_reps_max: +e.target.value }))} className={INPUT} /></Field>
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label="Set">
+                    <input type="number" min={1} value={newEx.target_sets}
+                      onChange={e => setNewEx(v => ({ ...v, target_sets: +e.target.value }))}
+                      className={INPUT} style={inputStyle} />
+                  </Field>
+                  <Field label="Min Tek.">
+                    <input type="number" min={1} value={newEx.target_reps_min}
+                      onChange={e => setNewEx(v => ({ ...v, target_reps_min: +e.target.value }))}
+                      className={INPUT} style={inputStyle} />
+                  </Field>
+                  <Field label="Max Tek.">
+                    <input type="number" min={1} value={newEx.target_reps_max}
+                      onChange={e => setNewEx(v => ({ ...v, target_reps_max: +e.target.value }))}
+                      className={INPUT} style={inputStyle} />
+                  </Field>
                 </div>
-                <Field label="Dinlenme (sn)"><input type="number" min={0} value={newEx.rest_seconds} onChange={e => setNewEx(v => ({ ...v, rest_seconds: +e.target.value }))} className={INPUT} /></Field>
+                <Field label="Dinlenme (sn)">
+                  <input type="number" min={0} value={newEx.rest_seconds}
+                    onChange={e => setNewEx(v => ({ ...v, rest_seconds: +e.target.value }))}
+                    className={INPUT} style={inputStyle} />
+                </Field>
               </>
             )}
             {newEx.type === 'cardio' && (
-              <Field label="Süre (dakika)"><input type="number" min={1} value={newEx.target_duration_minutes} onChange={e => setNewEx(v => ({ ...v, target_duration_minutes: +e.target.value }))} className={INPUT} /></Field>
+              <Field label="Süre (dakika)">
+                <input type="number" min={1} value={newEx.target_duration_minutes}
+                  onChange={e => setNewEx(v => ({ ...v, target_duration_minutes: +e.target.value }))}
+                  className={INPUT} style={inputStyle} />
+              </Field>
             )}
             {newEx.type === 'timed' && (
-              <div className="grid grid-cols-3 gap-3">
-                <Field label="Set"><input type="number" min={1} value={newEx.target_sets} onChange={e => setNewEx(v => ({ ...v, target_sets: +e.target.value }))} className={INPUT} /></Field>
-                <Field label="Süre (sn)"><input type="number" min={1} value={newEx.target_duration_seconds} onChange={e => setNewEx(v => ({ ...v, target_duration_seconds: +e.target.value }))} className={INPUT} /></Field>
-                <Field label="Dinlenme (sn)"><input type="number" min={0} value={newEx.rest_seconds} onChange={e => setNewEx(v => ({ ...v, rest_seconds: +e.target.value }))} className={INPUT} /></Field>
+              <div className="grid grid-cols-3 gap-2">
+                <Field label="Set">
+                  <input type="number" min={1} value={newEx.target_sets}
+                    onChange={e => setNewEx(v => ({ ...v, target_sets: +e.target.value }))}
+                    className={INPUT} style={inputStyle} />
+                </Field>
+                <Field label="Süre (sn)">
+                  <input type="number" min={1} value={newEx.target_duration_seconds}
+                    onChange={e => setNewEx(v => ({ ...v, target_duration_seconds: +e.target.value }))}
+                    className={INPUT} style={inputStyle} />
+                </Field>
+                <Field label="Dinlenme (sn)">
+                  <input type="number" min={0} value={newEx.rest_seconds}
+                    onChange={e => setNewEx(v => ({ ...v, rest_seconds: +e.target.value }))}
+                    className={INPUT} style={inputStyle} />
+                </Field>
               </div>
             )}
-            <button onClick={() => { if (modal.type === 'addExercise') handleAddExercise(modal.dayId) }} disabled={!newEx.name.trim()} className={BTN_PRIMARY}>Ekle</button>
+            <button
+              onClick={() => { if (modal.type === 'addExercise') handleAddExercise(modal.dayId) }}
+              disabled={!newEx.name.trim()}
+              className="w-full h-11 rounded-xl text-[14px] font-bold active:opacity-80 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              style={{ background: C.text, color: C.bg }}>
+              Ekle
+            </button>
           </div>
-        </Modal>
+        </ModalShell>
       )}
 
+      {/* ── Egzersiz Düzenle Modal ── */}
       {editingEx && (
-        <Modal onClose={() => setEditingEx(null)}>
+        <ModalShell onClose={() => setEditingEx(null)}>
           <ModalHeader title="Egzersizi Düzenle" onClose={() => setEditingEx(null)} />
-          <div className="space-y-4">
+          <div className="space-y-3">
             <Field label="Egzersiz Adı">
-              <input type="text" value={editingEx.name} onChange={e => setEditingEx(v => v ? { ...v, name: e.target.value } : null)} className={INPUT} />
+              <input type="text" value={editingEx.name}
+                onChange={e => setEditingEx(v => v ? { ...v, name: e.target.value } : null)}
+                className={INPUT} style={inputStyle} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Tür">
-                <select value={editingEx.type || 'strength'} onChange={e => setEditingEx(v => v ? { ...v, type: e.target.value as ExType } : null)} className={INPUT}>
+                <select value={editingEx.type || 'strength'}
+                  onChange={e => setEditingEx(v => v ? { ...v, type: e.target.value as ExType } : null)}
+                  className={SELECT} style={inputStyle}>
                   <option value="strength">Ağırlık</option>
                   <option value="cardio">Kardiyo</option>
                   <option value="timed">Zamanlı</option>
                 </select>
               </Field>
               <Field label="Kas Grubu">
-                <select value={editingEx.muscle_group} onChange={e => setEditingEx(v => v ? { ...v, muscle_group: e.target.value } : null)} className={INPUT}>
+                <select value={editingEx.muscle_group}
+                  onChange={e => setEditingEx(v => v ? { ...v, muscle_group: e.target.value } : null)}
+                  className={SELECT} style={inputStyle}>
                   {MUSCLE_GROUPS.map(mg => <option key={mg} value={mg}>{mg}</option>)}
                 </select>
               </Field>
             </div>
             {(editingEx.type ?? 'strength') === 'strength' && (
               <>
-                <div className="grid grid-cols-3 gap-3">
-                  <Field label="Set"><input type="number" min={1} value={editingEx.target_sets || ''} onChange={e => setEditingEx(v => v ? { ...v, target_sets: +e.target.value } : null)} className={INPUT} /></Field>
-                  <Field label="Min Tek."><input type="number" min={1} value={editingEx.target_reps_min || ''} onChange={e => setEditingEx(v => v ? { ...v, target_reps_min: +e.target.value } : null)} className={INPUT} /></Field>
-                  <Field label="Max Tek."><input type="number" min={1} value={editingEx.target_reps_max || ''} onChange={e => setEditingEx(v => v ? { ...v, target_reps_max: +e.target.value } : null)} className={INPUT} /></Field>
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label="Set">
+                    <input type="number" min={1} value={editingEx.target_sets || ''}
+                      onChange={e => setEditingEx(v => v ? { ...v, target_sets: +e.target.value } : null)}
+                      className={INPUT} style={inputStyle} />
+                  </Field>
+                  <Field label="Min Tek.">
+                    <input type="number" min={1} value={editingEx.target_reps_min || ''}
+                      onChange={e => setEditingEx(v => v ? { ...v, target_reps_min: +e.target.value } : null)}
+                      className={INPUT} style={inputStyle} />
+                  </Field>
+                  <Field label="Max Tek.">
+                    <input type="number" min={1} value={editingEx.target_reps_max || ''}
+                      onChange={e => setEditingEx(v => v ? { ...v, target_reps_max: +e.target.value } : null)}
+                      className={INPUT} style={inputStyle} />
+                  </Field>
                 </div>
-                <Field label="Dinlenme (sn)"><input type="number" min={0} value={editingEx.rest_seconds || ''} onChange={e => setEditingEx(v => v ? { ...v, rest_seconds: +e.target.value } : null)} className={INPUT} /></Field>
+                <Field label="Dinlenme (sn)">
+                  <input type="number" min={0} value={editingEx.rest_seconds || ''}
+                    onChange={e => setEditingEx(v => v ? { ...v, rest_seconds: +e.target.value } : null)}
+                    className={INPUT} style={inputStyle} />
+                </Field>
               </>
             )}
             {editingEx.type === 'cardio' && (
-              <Field label="Süre (dakika)"><input type="number" min={1} value={editingEx.target_duration_minutes || ''} onChange={e => setEditingEx(v => v ? { ...v, target_duration_minutes: +e.target.value } : null)} className={INPUT} /></Field>
+              <Field label="Süre (dakika)">
+                <input type="number" min={1} value={editingEx.target_duration_minutes || ''}
+                  onChange={e => setEditingEx(v => v ? { ...v, target_duration_minutes: +e.target.value } : null)}
+                  className={INPUT} style={inputStyle} />
+              </Field>
             )}
             {editingEx.type === 'timed' && (
-              <div className="grid grid-cols-3 gap-3">
-                <Field label="Set"><input type="number" min={1} value={editingEx.target_sets || ''} onChange={e => setEditingEx(v => v ? { ...v, target_sets: +e.target.value } : null)} className={INPUT} /></Field>
-                <Field label="Süre (sn)"><input type="number" min={1} value={editingEx.target_duration_seconds || ''} onChange={e => setEditingEx(v => v ? { ...v, target_duration_seconds: +e.target.value } : null)} className={INPUT} /></Field>
-                <Field label="Dinlenme (sn)"><input type="number" min={0} value={editingEx.rest_seconds || ''} onChange={e => setEditingEx(v => v ? { ...v, rest_seconds: +e.target.value } : null)} className={INPUT} /></Field>
+              <div className="grid grid-cols-3 gap-2">
+                <Field label="Set">
+                  <input type="number" min={1} value={editingEx.target_sets || ''}
+                    onChange={e => setEditingEx(v => v ? { ...v, target_sets: +e.target.value } : null)}
+                    className={INPUT} style={inputStyle} />
+                </Field>
+                <Field label="Süre (sn)">
+                  <input type="number" min={1} value={editingEx.target_duration_seconds || ''}
+                    onChange={e => setEditingEx(v => v ? { ...v, target_duration_seconds: +e.target.value } : null)}
+                    className={INPUT} style={inputStyle} />
+                </Field>
+                <Field label="Dinlenme (sn)">
+                  <input type="number" min={0} value={editingEx.rest_seconds || ''}
+                    onChange={e => setEditingEx(v => v ? { ...v, rest_seconds: +e.target.value } : null)}
+                    className={INPUT} style={inputStyle} />
+                </Field>
               </div>
             )}
-            <div className="flex gap-3 pt-1">
-              <button onClick={() => setModal({ type: 'deleteExercise', exerciseId: editingEx.id })} className="w-11 h-11 flex items-center justify-center rounded-xl border border-red-100 text-red-400 bg-white flex-shrink-0">
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setModal({ type: 'deleteExercise', exerciseId: editingEx.id })}
+                className="w-11 h-11 flex items-center justify-center rounded-xl active:scale-95 transition-transform flex-shrink-0"
+                style={{ background: C.dangerBg, border: `1px solid ${C.dangerBorder}`, color: C.danger }}>
                 <Trash2 size={15} />
               </button>
-              <button onClick={handleSaveExercise} className={`${BTN_PRIMARY} flex-1`}>Kaydet</button>
+              <button onClick={handleSaveExercise}
+                className="flex-1 h-11 rounded-xl text-[14px] font-bold active:opacity-80 transition-all flex items-center justify-center gap-2"
+                style={{ background: C.text, color: C.bg }}>
+                <Check size={15} strokeWidth={2.5} />
+                Kaydet
+              </button>
             </div>
           </div>
-        </Modal>
+        </ModalShell>
       )}
 
+      {/* ── Gün Sil ── */}
       {modal?.type === 'deleteDay' && (
-        <Modal onClose={() => setModal(null)}>
-          <h3 className="text-base font-bold text-stone-900 mb-2">Günü Sil</h3>
-          <p className="text-sm text-stone-500 mb-5 leading-relaxed">
-            <span className="font-semibold text-stone-700">"{modal.dayName}"</span> günü ve tüm egzersizleri kalıcı olarak silinecek.
+        <ModalShell onClose={() => setModal(null)}>
+          <p className="text-[17px] font-extrabold mb-1" style={{ color: C.text }}>Günü Sil</p>
+          <p className="text-[13px] mb-5 leading-relaxed" style={{ color: C.textMid }}>
+            <span className="font-semibold" style={{ color: C.text }}>"{modal.dayName}"</span> günü ve tüm egzersizleri kalıcı olarak silinecek.
           </p>
           <div className="flex gap-3">
-            <button onClick={() => setModal(null)} className={BTN_GHOST}>Vazgeç</button>
-            <button onClick={() => handleDeleteDay(modal.dayId)} className={BTN_DANGER}>Sil</button>
+            <button onClick={() => setModal(null)}
+              className="flex-1 h-11 rounded-xl text-[13px] font-semibold active:scale-95 transition-transform"
+              style={{ background: C.surfaceHigh, border: `1px solid ${C.border}`, color: C.textMid }}>
+              Vazgeç
+            </button>
+            <button onClick={() => handleDeleteDay(modal.dayId)}
+              className="flex-1 h-11 rounded-xl text-[13px] font-bold active:scale-95 transition-transform"
+              style={{ background: C.dangerBg, border: `1px solid ${C.dangerBorder}`, color: C.danger }}>
+              Sil
+            </button>
           </div>
-        </Modal>
+        </ModalShell>
       )}
 
+      {/* ── Egzersiz Sil ── */}
       {modal?.type === 'deleteExercise' && (
-        <Modal onClose={() => setModal(null)} zIndex="z-[60]">
-          <h3 className="text-base font-bold text-stone-900 mb-2">Egzersizi Sil</h3>
-          <p className="text-sm text-stone-500 mb-5">Bu egzersiz kalıcı olarak silinecek.</p>
+        <ModalShell onClose={() => setModal(null)} zIndex="z-[60]">
+          <p className="text-[17px] font-extrabold mb-1" style={{ color: C.text }}>Egzersizi Sil</p>
+          <p className="text-[13px] mb-5" style={{ color: C.textMid }}>Bu egzersiz kalıcı olarak silinecek.</p>
           <div className="flex gap-3">
-            <button onClick={() => setModal(null)} className={BTN_GHOST}>Vazgeç</button>
-            <button onClick={() => handleDeleteExercise(modal.exerciseId)} className={BTN_DANGER}>Sil</button>
+            <button onClick={() => setModal(null)}
+              className="flex-1 h-11 rounded-xl text-[13px] font-semibold active:scale-95 transition-transform"
+              style={{ background: C.surfaceHigh, border: `1px solid ${C.border}`, color: C.textMid }}>
+              Vazgeç
+            </button>
+            <button onClick={() => handleDeleteExercise(modal.exerciseId)}
+              className="flex-1 h-11 rounded-xl text-[13px] font-bold active:scale-95 transition-transform"
+              style={{ background: C.dangerBg, border: `1px solid ${C.dangerBorder}`, color: C.danger }}>
+              Sil
+            </button>
           </div>
-        </Modal>
+        </ModalShell>
       )}
 
+      {/* ── Program Sil ── */}
       {modal?.type === 'deleteProgram' && (
-        <Modal onClose={() => setModal(null)}>
-          <h3 className="text-base font-bold text-stone-900 mb-2">Programı Sil</h3>
-          <p className="text-sm text-stone-500 mb-5 leading-relaxed">
-            <span className="font-semibold text-stone-700">"{program.name}"</span> ve tüm günler kalıcı olarak silinecek.
+        <ModalShell onClose={() => setModal(null)}>
+          <p className="text-[17px] font-extrabold mb-1" style={{ color: C.text }}>Programı Sil</p>
+          <p className="text-[13px] mb-5 leading-relaxed" style={{ color: C.textMid }}>
+            <span className="font-semibold" style={{ color: C.text }}>"{program.name}"</span> ve tüm günler kalıcı olarak silinecek.
           </p>
           <div className="flex gap-3">
-            <button onClick={() => setModal(null)} className={BTN_GHOST}>Vazgeç</button>
-            <button onClick={handleDeleteProgram} className={BTN_DANGER}>Sil</button>
+            <button onClick={() => setModal(null)}
+              className="flex-1 h-11 rounded-xl text-[13px] font-semibold active:scale-95 transition-transform"
+              style={{ background: C.surfaceHigh, border: `1px solid ${C.border}`, color: C.textMid }}>
+              Vazgeç
+            </button>
+            <button onClick={handleDeleteProgram}
+              className="flex-1 h-11 rounded-xl text-[13px] font-bold active:scale-95 transition-transform"
+              style={{ background: C.dangerBg, border: `1px solid ${C.dangerBorder}`, color: C.danger }}>
+              Sil
+            </button>
           </div>
-        </Modal>
+        </ModalShell>
       )}
     </div>
   )

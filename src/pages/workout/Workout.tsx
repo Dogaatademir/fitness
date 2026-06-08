@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Play, History, ChevronRight, Dumbbell, Lock, Clock, BarChart2 } from 'lucide-react'
+import { History, ChevronRight, Dumbbell, BarChart2, Play, Check } from 'lucide-react'
 import { supabase, getUserId } from '../../lib/supabase'
 import { today } from '../../lib/storage'
 import type { Program, ProgramDay, Exercise, WorkoutSession } from '../../types'
@@ -37,38 +37,34 @@ function relativeDate(dateStr: string): string {
   return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })
 }
 
-// ─── Renk sabitleri — tek noktadan yönetim ───────────────────────────────────
+// ─── Tema ────────────────────────────────────────────────────────────────────
 const C = {
-  bg:          '#0d0d14',
-  surface:     '#16161f',   // kart yüzeyi
-  surfaceHigh: '#1c1c27',   // hover/raised
-  border:      'rgba(255,255,255,0.08)',
-  borderSub:   'rgba(255,255,255,0.05)',
-  text:        '#e8e4dc',   // kirli krem — birincil metin
-  textMid:     'rgba(232,228,220,0.45)',
-  textLow:     'rgba(232,228,220,0.2)',
+  bg:           '#f5f3ef',
+  surface:      '#ffffff',
+  surfaceHigh:  '#f0ede8',
+  border:       'rgba(0,0,0,0.07)',
+  borderSub:    'rgba(0,0,0,0.04)',
+  text:         '#1a1714',
+  textMid:      'rgba(26,23,20,0.45)',
+  textLow:      'rgba(26,23,20,0.28)',
 
-  // Başlat (Start) - Enerjik Mavi
-  startText:   '#60a5fa',
-  startBg:     'rgba(59,130,246,0.15)',
-  startBorder: 'rgba(59,130,246,0.3)',
+  startText:    '#1d4ed8',
+  startBg:      'rgba(29,78,216,0.07)',
+  startBorder:  'rgba(29,78,216,0.18)',
 
-  // Devam Et (In Progress) - Kehribar/Turuncu
-  ongoingText: '#fbbf24',
-  ongoingBg:   'rgba(245,158,11,0.15)',
-  ongoingBorder:'rgba(245,158,11,0.3)',
+  ongoingText:  '#b45309',
+  ongoingBg:    'rgba(180,83,9,0.08)',
+  ongoingBorder:'rgba(180,83,9,0.2)',
 
-  // Tamamlandı (Done) - Zümrüt Yeşili
-  successText: '#34d399',
-  successBg:   'rgba(16,185,129,0.15)',
-  successBorder:'rgba(16,185,129,0.3)',
+  successText:  '#166534',
+  successBg:    'rgba(22,101,52,0.07)',
+  successBorder:'rgba(22,101,52,0.18)',
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface DayWithExercises extends ProgramDay {
   exercises: Exercise[]
-  is_next?: boolean
 }
 
 interface OpenSession {
@@ -130,9 +126,9 @@ function buildSessionsByDay(days: DayWithExercises[], sessions: WorkoutSession[]
   return map
 }
 
-// ─── ActiveDayCard ────────────────────────────────────────────────────────────
+// ─── NextDayCard ──────────────────────────────────────────────────────────────
 
-function ActiveDayCard({ day, session, inProgress, pausedLabel, onClick }: {
+function NextDayCard({ day, session, inProgress, pausedLabel, onClick }: {
   day: DayWithExercises
   session?: WorkoutSession
   inProgress: boolean
@@ -142,186 +138,110 @@ function ActiveDayCard({ day, session, inProgress, pausedLabel, onClick }: {
   const done = !!session?.ended_at
 
   return (
-    <div
+    <button
       onClick={onClick}
-      role="button"
-      className="w-full rounded-2xl overflow-hidden cursor-pointer active:scale-[0.985] transition-transform duration-150"
-      style={{
-        background: C.surface,
-        border: `1px solid ${C.border}`,
-      }}
+      className="w-full rounded-2xl overflow-hidden text-left active:scale-[0.985] transition-transform duration-150"
+      style={{ background: C.surface, border: `1px solid ${C.border}` }}
     >
       {/* Üst bant */}
-      <div
-        className="px-5 py-3 flex items-center justify-between"
-        style={{ borderBottom: `1px solid ${C.borderSub}` }}
-      >
-        <span
-          className="text-[10px] font-bold uppercase tracking-[0.16em]"
-          style={{ color: C.textLow }}
-        >
+      <div className="px-5 py-3 flex items-center justify-between"
+        style={{ borderBottom: `1px solid ${C.borderSub}` }}>
+        <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: C.textLow }}>
           {inProgress ? (
-            <span className="flex items-center gap-1.5" style={{ color: C.textMid }}>
-              <span
-                className="w-1.5 h-1.5 rounded-full inline-block"
-                style={{ background: C.ongoingText, boxShadow: `0 0 0 3px ${C.ongoingBg}` }}
-              />
+            <span className="flex items-center gap-1.5" style={{ color: C.ongoingText }}>
+              <span className="w-1.5 h-1.5 rounded-full inline-block animate-pulse"
+                style={{ background: C.ongoingText }} />
               devam ediyor
             </span>
-          ) : 'sıradaki'}
+          ) : done ? 'tamamlandı' : 'sıradaki'}
         </span>
-
-        <span
-          className="text-[11px] font-bold px-3 py-1 rounded-full"
-          style={{
-            background: done ? C.successBg : inProgress ? C.ongoingBg : C.startBg,
-            color: done ? C.successText : inProgress ? C.ongoingText : C.startText,
-            border: `1px solid ${done ? C.successBorder : inProgress ? C.ongoingBorder : C.startBorder}`,
-          }}
-        >
-          {done
-            ? '✓ Tamamlandı'
-            : inProgress && pausedLabel
-              ? `Devam Et · ${pausedLabel}`
-              : inProgress ? 'Devam Et'
-              : 'Başlat'}
+        <span className="text-[11px] font-bold px-3 py-1 rounded-full" style={{
+          background: done ? C.successBg : inProgress ? C.ongoingBg : C.startBg,
+          color:      done ? C.successText : inProgress ? C.ongoingText : C.startText,
+          border:     `1px solid ${done ? C.successBorder : inProgress ? C.ongoingBorder : C.startBorder}`,
+        }}>
+          {done ? '✓ Tamamlandı' : inProgress
+            ? pausedLabel ? `Devam Et · ${pausedLabel}` : 'Devam Et'
+            : 'Başlat'}
         </span>
       </div>
 
       {/* İçerik */}
       <div className="px-5 py-5">
-        <p
-          className="text-[32px] font-black leading-none tracking-tight mb-1.5"
-          style={{ color: C.text }}
-        >
-          {day.day_name}
-        </p>
-        <p className="text-sm mb-5" style={{ color: C.textMid }}>
+        <div className="flex items-end justify-between mb-1.5">
+          <p className="text-[30px] font-extrabold leading-none tracking-tight" style={{ color: C.text }}>
+            {day.day_name}
+          </p>
+        </div>
+        <p className="text-sm mb-4" style={{ color: C.textMid }}>
           {day.exercises.length} egzersiz
           {session?.ended_at && ` · ${formatDuration(session.started_at, session.ended_at)}`}
         </p>
 
         {day.exercises.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="pt-4 space-y-2.5" style={{ borderTop: `1px solid ${C.borderSub}` }}>
             {day.exercises.slice(0, 4).map(e => (
-              <div
-                key={e.id}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs"
-                style={{
-                  background: C.surfaceHigh,
-                  border: `1px solid ${C.border}`,
-                  color: C.textMid,
-                }}
-              >
-                <span style={{ color: C.text, fontWeight: 600 }}>{e.name}</span>
-                {exerciseTarget(e) && (
-                  <span style={{ color: C.textLow }}>{exerciseTarget(e)}</span>
-                )}
+              <div key={e.id} className="flex items-center justify-between">
+                <span className="text-[13px] font-semibold" style={{ color: C.textMid }}>{e.name}</span>
+                <span className="text-[12px] font-medium tabular-nums" style={{ color: C.textLow }}>
+                  {exerciseTarget(e)}
+                </span>
               </div>
             ))}
             {day.exercises.length > 4 && (
-              <div
-                className="px-3 py-1.5 rounded-full text-xs"
-                style={{
-                  background: C.surfaceHigh,
-                  border: `1px solid ${C.borderSub}`,
-                  color: C.textLow,
-                }}
-              >
-                +{day.exercises.length - 4}
-              </div>
+              <p className="text-xs" style={{ color: C.textLow }}>
+                +{day.exercises.length - 4} egzersiz daha
+              </p>
             )}
           </div>
         )}
       </div>
-    </div>
+    </button>
   )
 }
 
-// ─── LockedDayRow ─────────────────────────────────────────────────────────────
+// ─── DayRow ───────────────────────────────────────────────────────────────────
 
-function LockedDayRow({ day, session }: {
+function DayRow({ day, session, orderNum }: {
   day: DayWithExercises
   session?: WorkoutSession
+  orderNum: number
 }) {
   const done = !!session?.ended_at
+
   return (
     <div
-      className="w-full rounded-xl px-4 py-3.5 flex items-center gap-3.5"
-      style={{
-        background: C.surface,
-        border: `1px solid ${C.borderSub}`,
-      }}
+      className="w-full rounded-2xl px-4 py-3.5 flex items-center gap-3.5"
+      style={{ background: C.surface, border: `1px solid ${C.border}`, opacity: done ? 0.8 : 0.6 }}
     >
-      <div
-        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-sm font-black"
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
         style={{
           background: done ? C.successBg : C.surfaceHigh,
-          color: done ? C.successText : C.textLow,
           border: `1px solid ${done ? C.successBorder : C.borderSub}`,
-        }}
-      >
-        {done ? '✓' : <Lock size={12} />}
+        }}>
+        {done
+          ? <Check size={14} style={{ color: C.successText }} strokeWidth={2.5} />
+          : <span className="text-[12px] font-bold" style={{ color: C.textLow }}>{orderNum}</span>
+        }
       </div>
       <div className="flex-1 min-w-0">
-        <p
-          className="text-sm font-semibold truncate"
-          style={{ color: done ? C.textMid : C.textLow }}
-        >
+        <p className="text-[14px] font-semibold truncate" style={{ color: done ? C.textMid : C.text }}>
           {day.day_name}
         </p>
-        <p className="text-xs mt-0.5" style={{ color: C.textLow }}>
+        <p className="text-[12px] mt-0.5" style={{ color: C.textLow }}>
           {day.exercises.length} egzersiz
           {session?.ended_at && ` · ${formatDuration(session.started_at, session.ended_at)}`}
         </p>
       </div>
-      <span
-        className="text-[10px] font-bold uppercase tracking-wider flex-shrink-0"
-        style={{ color: done ? C.successText : C.textLow }}
-      >
-        {done ? 'bitti' : `${day.order_index + 1}. gün`}
-      </span>
     </div>
   )
 }
 
-// ─── EmptyState ───────────────────────────────────────────────────────────────
-
-function EmptyState({ icon, title, desc, action }: {
-  icon: React.ReactNode
-  title: string
-  desc: string
-  action: { label: string; onClick: () => void }
-}) {
-  return (
-    <div
-      className="rounded-2xl p-10 text-center"
-      style={{ background: C.surface, border: `1px solid ${C.border}` }}
-    >
-      <div
-        className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-5"
-        style={{ background: C.surfaceHigh, border: `1px solid ${C.border}` }}
-      >
-        {icon}
-      </div>
-      <p className="text-base font-bold mb-2" style={{ color: C.text }}>{title}</p>
-      <p className="text-sm leading-relaxed mb-6" style={{ color: C.textMid }}>{desc}</p>
-      <button
-        onClick={action.onClick}
-        className="px-6 py-2.5 rounded-xl text-sm font-bold active:scale-95 transition-transform"
-        style={{ background: C.surfaceHigh, color: C.text, border: `1px solid ${C.border}` }}
-      >
-        {action.label}
-      </button>
-    </div>
-  )
-}
-
-// ─── Workout (ana sayfa) ──────────────────────────────────────────────────────
+// ─── Workout ─────────────────────────────────────────────────────────────────
 
 export default function Workout() {
   const navigate = useNavigate()
-  const [showConfirm, setShowConfirm] = useState(false)
+  const [confirmDay, setConfirmDay] = useState<DayWithExercises | null>(null)
 
   const { data: wdata } = useQuery({
     queryKey: ['workout-page'],
@@ -332,33 +252,40 @@ export default function Workout() {
   const { program, days, sessions, setMeta, nextOrder, openSession } =
     wdata ?? { program: null, days: [], sessions: [], setMeta: {}, nextOrder: 0, openSession: null }
 
-  const sessionsByDay  = buildSessionsByDay(Array.isArray(days) ? days : [], Array.isArray(sessions) ? sessions : [])
-  const recentSessions = Array.isArray(sessions) ? sessions.slice(0, 5) : []
-  const safeDays       = Array.isArray(days) ? days : []
+  const sessionsByDay   = buildSessionsByDay(Array.isArray(days) ? days : [], Array.isArray(sessions) ? sessions : [])
+  const recentSessions  = Array.isArray(sessions) ? sessions.slice(0, 5) : []
+  const safeDays        = Array.isArray(days) ? days : []
   const activeNextOrder = openSession ? openSession.order_index : nextOrder
-  const isInProgress   = !!openSession
+  const isInProgress    = !!openSession
+  const activeDay       = safeDays.find(d => d.order_index === activeNextOrder)
 
-  const sortedDays = [...safeDays].sort((a, b) => {
-    if (a.order_index === activeNextOrder) return -1
-    if (b.order_index === activeNextOrder) return 1
-    return a.order_index - b.order_index
-  })
+  const sortedDays = [...safeDays].sort((a, b) => a.order_index - b.order_index)
 
-  const activeDay = safeDays.find(d => d.order_index === activeNextOrder)
-
-  const pausedLabel = isInProgress && openSession && openSession.paused_elapsed_seconds != null
+  const pausedLabel = isInProgress && openSession?.paused_elapsed_seconds != null
     ? (() => {
         const secs = openSession.paused_elapsed_seconds!
-        const m = Math.floor(secs / 60)
-        const s = secs % 60
-        return `${m}:${String(s).padStart(2, '0')}`
+        return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
       })()
     : null
 
-  function handleStartConfirmed() {
-    setShowConfirm(false)
+  function handleDayTap(day: DayWithExercises) {
+    setConfirmDay(day)
+  }
+
+  function handleConfirmed() {
+    setConfirmDay(null)
+    if (confirmDay) {
+      navigate('/workout/start', { state: { dayId: confirmDay.id } })
+    }
+  }
+
+  // Aktif gün için state: dayId vermeden navigate edersek mevcut session devam eder
+  function handleActiveDayConfirmed() {
+    setConfirmDay(null)
     navigate('/workout/start')
   }
+
+  const isConfirmingActiveDay = confirmDay?.order_index === activeNextOrder
 
   return (
     <div className="min-h-screen" style={{ background: C.bg, color: C.text }}>
@@ -366,24 +293,17 @@ export default function Workout() {
       {/* ── Header ── */}
       <div className="px-5 pt-14 pb-5 flex items-start justify-between">
         <div>
-          <p
-            className="text-[10px] font-bold uppercase tracking-[0.18em] mb-1"
-            style={{ color: C.textLow }}
-          >
+          <p className="text-[11px] font-semibold uppercase tracking-widest mb-1" style={{ color: C.textLow }}>
             {program ? program.name : 'Antrenman'}
           </p>
-          <h1 className="text-[28px] font-black tracking-tight leading-none" style={{ color: C.text }}>
+          <h1 className="text-[28px] font-extrabold tracking-tight leading-none" style={{ color: C.text }}>
             Antrenman
           </h1>
         </div>
         <button
           onClick={() => navigate('/workout/history')}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold active:scale-95 transition-transform"
-          style={{
-            background: C.surface,
-            border: `1px solid ${C.border}`,
-            color: C.textMid,
-          }}
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold active:scale-95 transition-transform"
+          style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMid }}
         >
           <History size={13} />
           Geçmiş
@@ -391,76 +311,108 @@ export default function Workout() {
       </div>
 
       {/* ── İçerik ── */}
-      <div className="px-4 pb-32 space-y-2.5">
+      <div className="px-4 pb-36 space-y-2.5">
         {!program ? (
-          <EmptyState
-            icon={<Dumbbell size={22} style={{ color: C.textLow }} />}
-            title="Program yok"
-            desc="Antrenman takibi için önce bir program oluşturman gerekiyor."
-            action={{ label: 'Program Oluştur', onClick: () => navigate('/programs') }}
-          />
+          <div className="rounded-2xl p-10 text-center"
+            style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-5"
+              style={{ background: C.surfaceHigh }}>
+              <Dumbbell size={22} style={{ color: C.textLow }} />
+            </div>
+            <p className="text-base font-bold mb-2" style={{ color: C.text }}>Program yok</p>
+            <p className="text-sm leading-relaxed mb-6" style={{ color: C.textMid }}>
+              Antrenman takibi için önce bir program oluşturman gerekiyor.
+            </p>
+            <button
+              onClick={() => navigate('/programs')}
+              className="px-6 py-2.5 rounded-xl text-sm font-bold active:scale-95 transition-transform"
+              style={{ background: C.surfaceHigh, color: C.text, border: `1px solid ${C.border}` }}
+            >
+              Program Oluştur
+            </button>
+          </div>
         ) : safeDays.length === 0 ? (
-          <EmptyState
-            icon={<BarChart2 size={22} style={{ color: C.textLow }} />}
-            title="Gün eklenmedi"
-            desc="Programa antrenman günleri ekle."
-            action={{ label: 'Programı Düzenle', onClick: () => navigate(`/programs/${program.id}`) }}
-          />
+          <div className="rounded-2xl p-10 text-center"
+            style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-5"
+              style={{ background: C.surfaceHigh }}>
+              <BarChart2 size={22} style={{ color: C.textLow }} />
+            </div>
+            <p className="text-base font-bold mb-2" style={{ color: C.text }}>Gün eklenmedi</p>
+            <p className="text-sm leading-relaxed mb-6" style={{ color: C.textMid }}>
+              Programa antrenman günleri ekle.
+            </p>
+            <button
+              onClick={() => navigate(`/programs/${program.id}`)}
+              className="px-6 py-2.5 rounded-xl text-sm font-bold active:scale-95 transition-transform"
+              style={{ background: C.surfaceHigh, color: C.text, border: `1px solid ${C.border}` }}
+            >
+              Programı Düzenle
+            </button>
+          </div>
         ) : (
           <>
-            {sortedDays.map(day =>
-              day.order_index === activeNextOrder ? (
-                <ActiveDayCard
-                  key={day.id}
-                  day={day}
-                  session={sessionsByDay[day.id]}
-                  inProgress={isInProgress}
-                  pausedLabel={pausedLabel}
-                  onClick={() => setShowConfirm(true)}
-                />
-              ) : (
-                <LockedDayRow
-                  key={day.id}
-                  day={day}
-                  session={sessionsByDay[day.id]}
-                />
-              )
+            {/* Sıradaki / aktif gün — büyük kart */}
+            {activeDay && (
+              <NextDayCard
+                day={activeDay}
+                session={sessionsByDay[activeDay.id]}
+                inProgress={isInProgress}
+                pausedLabel={pausedLabel}
+                onClick={() => handleDayTap(activeDay)}
+              />
             )}
 
-            {/* ── Son Antrenmanlar ── */}
+            {/* Diğer günler */}
+            {sortedDays.filter(d => d.order_index !== activeNextOrder).length > 0 && (
+              <div className="pt-1">
+                <p className="text-[11px] font-semibold uppercase tracking-widest mb-2 px-1"
+                  style={{ color: C.textLow }}>
+                  Program
+                </p>
+                <div className="space-y-2">
+                  {sortedDays
+                    .filter(d => d.order_index !== activeNextOrder)
+                    .map(day => (
+                      <DayRow
+                        key={day.id}
+                        day={day}
+                        session={sessionsByDay[day.id]}
+                        orderNum={day.order_index + 1}
+                      />
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {/* Son antrenmanlar */}
             {recentSessions.length > 0 && (
-              <div className="pt-4">
-                <p
-                  className="text-[10px] font-bold uppercase tracking-[0.15em] mb-3 px-1"
-                  style={{ color: C.textLow }}
-                >
+              <div className="pt-1">
+                <p className="text-[11px] font-semibold uppercase tracking-widest mb-2 px-1"
+                  style={{ color: C.textLow }}>
                   Son Antrenmanlar
                 </p>
-                <div
-                  className="rounded-2xl overflow-hidden"
-                  style={{ border: `1px solid ${C.border}`, background: C.surface }}
-                >
+                <div className="rounded-2xl overflow-hidden"
+                  style={{ border: `1px solid ${C.border}`, background: C.surface }}>
                   {recentSessions.map((session, i) => {
                     const meta = setMeta[session.id]
                     return (
                       <button
                         key={session.id}
                         onClick={() => navigate(`/workout/history/${session.id}`)}
-                        className="w-full flex items-center justify-between px-5 py-4 text-left transition-colors active:bg-white/[0.03]"
+                        className="w-full flex items-center justify-between px-5 py-4 text-left active:bg-black/[0.02] transition-colors"
                         style={i > 0 ? { borderTop: `1px solid ${C.borderSub}` } : undefined}
                       >
                         <div className="flex items-center gap-3">
-                          <div
-                            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                            style={{ background: C.surfaceHigh, border: `1px solid ${C.borderSub}` }}
-                          >
-                            <Clock size={13} style={{ color: C.textLow }} />
+                          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                            style={{ background: C.surfaceHigh }}>
+                            <Dumbbell size={14} strokeWidth={1.6} style={{ color: C.textMid }} />
                           </div>
                           <div>
-                            <p className="text-sm font-semibold" style={{ color: C.text }}>
+                            <p className="text-[14px] font-semibold" style={{ color: C.text }}>
                               {meta?.dayName ?? 'Antrenman'}
                             </p>
-                            <p className="text-xs mt-0.5" style={{ color: C.textLow }}>
+                            <p className="text-[12px] mt-0.5" style={{ color: C.textLow }}>
                               {relativeDate(session.date)}
                               {session.ended_at && ` · ${formatDuration(session.started_at, session.ended_at)}`}
                               {(meta?.completedSets ?? 0) > 0 && ` · ${meta.completedSets} set`}
@@ -474,10 +426,10 @@ export default function Workout() {
                 </div>
                 <button
                   onClick={() => navigate('/workout/history')}
-                  className="w-full mt-2 py-3 text-xs font-semibold"
+                  className="w-full mt-2 py-3 text-[12px] font-semibold"
                   style={{ color: C.textLow }}
                 >
-                  Tüm geçmişi gör
+                  Tüm geçmişi gör →
                 </button>
               </div>
             )}
@@ -487,13 +439,11 @@ export default function Workout() {
 
       {/* ── Floating CTA ── */}
       {program && safeDays.length > 0 && (
-        <div
-          className="fixed bottom-0 inset-x-0 px-4 pb-[calc(5rem+env(safe-area-inset-bottom))] pt-5"
-          style={{ background: `linear-gradient(to top, ${C.bg} 55%, transparent)` }}
-        >
+        <div className="fixed bottom-0 inset-x-0 px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-6"
+          style={{ background: `linear-gradient(to top, ${C.bg} 60%, transparent)` }}>
           <button
-            onClick={() => setShowConfirm(true)}
-            className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl font-bold text-sm tracking-wide active:scale-[0.97] transition-transform"
+            onClick={() => activeDay && handleDayTap(activeDay)}
+            className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl font-bold text-[15px] active:scale-[0.97] transition-transform"
             style={{
               background: isInProgress ? C.ongoingBg : C.startBg,
               border: `1px solid ${isInProgress ? C.ongoingBorder : C.startBorder}`,
@@ -507,50 +457,46 @@ export default function Workout() {
       )}
 
       {/* ── Onay Modalı ── */}
-      {showConfirm && (
+      {confirmDay && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center p-4"
-          style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)' }}
-          onClick={() => setShowConfirm(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.25)' }}
+          onClick={() => setConfirmDay(null)}
         >
           <div
             className="w-full max-w-sm rounded-3xl p-6"
-            style={{
-              background: C.surfaceHigh,
-              border: `1px solid ${C.border}`,
-            }}
+            style={{ background: C.surface, border: `1px solid ${C.border}` }}
             onClick={e => e.stopPropagation()}
           >
-            <p className="font-black text-lg mb-1" style={{ color: C.text }}>
-              {isInProgress ? 'Devam Et' : 'Antrenmanı Başlat'}
+            <p className="text-[11px] font-semibold uppercase tracking-widest mb-1" style={{ color: C.textLow }}>
+              {isConfirmingActiveDay && isInProgress ? 'Devam Et' : 'Antrenman'}
             </p>
-            <p className="text-sm mb-6" style={{ color: C.textMid }}>
-              {isInProgress
-                ? `${activeDay?.day_name} — yarım kalan antrenmanına devam edeceksin.`
-                : `${activeDay?.day_name} — ${activeDay?.exercises?.length ?? 0} egzersiz. Hazır mısın?`}
+            <p className="text-[22px] font-extrabold tracking-tight mb-1" style={{ color: C.text }}>
+              {confirmDay.day_name}
             </p>
-            <div className="flex gap-2.5">
+            <p className="text-[14px] mb-6" style={{ color: C.textMid }}>
+              {isConfirmingActiveDay && isInProgress
+                ? 'Yarım kalan antrenmanına devam edeceksin.'
+                : `${confirmDay.exercises.length} egzersiz · Başlatılsın mı?`}
+            </p>
+            <div className="flex gap-3">
               <button
-                onClick={() => setShowConfirm(false)}
-                className="flex-1 py-3.5 rounded-xl text-sm font-semibold active:scale-95 transition-transform"
-                style={{
-                  background: C.surface,
-                  border: `1px solid ${C.border}`,
-                  color: C.textMid,
-                }}
+                onClick={() => setConfirmDay(null)}
+                className="flex-1 py-3.5 rounded-2xl text-sm font-semibold active:scale-95 transition-transform"
+                style={{ background: C.surfaceHigh, border: `1px solid ${C.border}`, color: C.textMid }}
               >
-                Vazgeç
+                İptal
               </button>
               <button
-                onClick={handleStartConfirmed}
-                className="flex-1 py-3.5 rounded-xl text-sm font-bold active:scale-95 transition-transform"
+                onClick={isConfirmingActiveDay ? handleActiveDayConfirmed : handleConfirmed}
+                className="flex-[2] py-3.5 rounded-2xl text-sm font-bold active:scale-95 transition-transform"
                 style={{
-                  background: isInProgress ? C.ongoingBg : C.startBg,
-                  border: `1px solid ${isInProgress ? C.ongoingBorder : C.startBorder}`,
-                  color: isInProgress ? C.ongoingText : C.startText,
+                  background: isInProgress && isConfirmingActiveDay ? C.ongoingBg : C.startBg,
+                  border: `1px solid ${isInProgress && isConfirmingActiveDay ? C.ongoingBorder : C.startBorder}`,
+                  color: isInProgress && isConfirmingActiveDay ? C.ongoingText : C.startText,
                 }}
               >
-                {isInProgress ? 'Devam Et' : 'Başlat'}
+                {isInProgress && isConfirmingActiveDay ? 'Devam Et' : 'Başlat'}
               </button>
             </div>
           </div>

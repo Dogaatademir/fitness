@@ -11,7 +11,6 @@ import ProgramDetail from './pages/programs/ProgramDetail'
 import Nutrition from './pages/nutrition/Nutrition'
 import NutritionLog from './pages/nutrition/NutritionLog'
 import NutritionHistory from './pages/nutrition/NutritionHistory'
-import NutritionScan from './pages/nutrition/NutritionScan'
 import Body from './pages/body/Body'
 import BodyNew from './pages/body/BodyNew'
 import Settings from './pages/Settings'
@@ -35,7 +34,6 @@ export default function App() {
           <Route path="/nutrition" element={<Nutrition />} />
           <Route path="/nutrition/log" element={<NutritionLog />} />
           <Route path="/nutrition/history" element={<NutritionHistory />} />
-          <Route path="/nutrition/scan" element={<NutritionScan />} />
 
           <Route path="/body" element={<Body />} />
           <Route path="/body/new" element={<BodyNew />} />

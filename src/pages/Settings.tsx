@@ -6,46 +6,21 @@ import { supabase, getUserId } from '../lib/supabase'
 import { QK } from '../lib/queryClient'
 import type { UserProfile } from '../types'
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <p className="text-[10px] uppercase tracking-[0.12em] text-stone-400 font-semibold mb-3 px-1">{title}</p>
-      <div className="rounded-2xl bg-white border border-stone-100 shadow-sm overflow-hidden">
-        {children}
-      </div>
-    </div>
-  )
-}
-
-function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between px-5 py-4 border-b border-stone-50 last:border-0">
-      <div className="mr-4 min-w-0">
-        <p className="text-sm font-semibold text-stone-800">{label}</p>
-        {hint && <p className="text-xs text-stone-400 mt-0.5">{hint}</p>}
-      </div>
-      <div className="flex-shrink-0">{children}</div>
-    </div>
-  )
-}
-
-function NumInput({ value, onChange, min, max, suffix }: {
-  value: string; onChange: (v: string) => void; min?: number; max?: number; suffix?: string
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <input
-        type="number"
-        inputMode="decimal"
-        value={value}
-        min={min}
-        max={max}
-        onChange={e => onChange(e.target.value)}
-        className="w-20 px-3 py-2 rounded-xl border border-stone-200 bg-stone-50 text-sm font-semibold text-stone-800 text-center outline-none focus:border-slate-400 focus:bg-white transition-all"
-      />
-      {suffix && <span className="text-xs text-stone-400 font-medium">{suffix}</span>}
-    </div>
-  )
+const C = {
+  bg:           '#f5f3ef',
+  surface:      '#ffffff',
+  surfaceHigh:  '#f0ede8',
+  border:       'rgba(0,0,0,0.07)',
+  borderSub:    'rgba(0,0,0,0.04)',
+  text:         '#1a1714',
+  textMid:      'rgba(26,23,20,0.45)',
+  textLow:      'rgba(26,23,20,0.28)',
+  danger:       '#b91c1c',
+  dangerBg:     'rgba(185,28,28,0.07)',
+  dangerBorder: 'rgba(185,28,28,0.2)',
+  successText:  '#166534',
+  successBg:    'rgba(22,101,52,0.07)',
+  successBorder:'rgba(22,101,52,0.18)',
 }
 
 type FormState = {
@@ -62,10 +37,10 @@ function profileToForm(p: UserProfile | null): FormState {
   return {
     height_cm:             String(p?.height_cm             ?? ''),
     weight_kg:             String(p?.weight_kg             ?? ''),
-    daily_calorie_goal:    String(p?.daily_calorie_goal    ?? '2200'),
+    daily_calorie_goal:    String(p?.daily_calorie_goal    ?? '1600'),
     daily_protein_goal:    String(p?.daily_protein_goal    ?? '160'),
-    daily_carb_goal:       String(p?.daily_carb_goal       ?? '250'),
-    daily_fat_goal:        String(p?.daily_fat_goal        ?? '70'),
+    daily_carb_goal:       String(p?.daily_carb_goal       ?? '135'),
+    daily_fat_goal:        String(p?.daily_fat_goal        ?? '47'),
     training_calorie_goal: String(p?.training_calorie_goal ?? ''),
   }
 }
@@ -74,19 +49,68 @@ function formToProfile(f: FormState): UserProfile {
   return {
     height_cm:             parseFloat(f.height_cm)             || 0,
     weight_kg:             parseFloat(f.weight_kg)             || 0,
-    daily_calorie_goal:    parseInt(f.daily_calorie_goal)      || 2200,
+    daily_calorie_goal:    parseInt(f.daily_calorie_goal)      || 1600,
     daily_protein_goal:    parseInt(f.daily_protein_goal)      || 160,
-    daily_carb_goal:       parseInt(f.daily_carb_goal)         || 250,
-    daily_fat_goal:        parseInt(f.daily_fat_goal)          || 70,
+    daily_carb_goal:       parseInt(f.daily_carb_goal)         || 135,
+    daily_fat_goal:        parseInt(f.daily_fat_goal)          || 47,
     training_calorie_goal: f.training_calorie_goal ? parseInt(f.training_calorie_goal) : undefined,
   }
+}
+
+function FieldRow({
+  label, hint, value, onChange, suffix, type = 'number', placeholder,
+}: {
+  label: string
+  hint?: string
+  value: string
+  onChange: (v: string) => void
+  suffix?: string
+  type?: string
+  placeholder?: string
+}) {
+  return (
+    <div
+      className="flex items-center justify-between px-5 py-4"
+      style={{ borderBottom: `1px solid ${C.borderSub}` }}
+    >
+      <div className="mr-4 min-w-0 flex-1">
+        <p className="text-[14px] font-semibold" style={{ color: C.text }}>{label}</p>
+        {hint && <p className="text-[11px] mt-0.5" style={{ color: C.textLow }}>{hint}</p>}
+      </div>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <input
+          type={type}
+          inputMode={type === 'number' ? 'decimal' : undefined}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder ?? '—'}
+          className="w-20 text-right text-[14px] font-semibold bg-transparent outline-none pb-0.5"
+          style={{ color: C.text, borderBottom: `1px solid ${C.border}` }}
+        />
+        {suffix && (
+          <span className="text-[12px] font-medium w-8" style={{ color: C.textMid }}>{suffix}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      className="text-[11px] font-semibold uppercase tracking-widest px-1 mb-2"
+      style={{ color: C.textLow }}
+    >
+      {children}
+    </p>
+  )
 }
 
 export default function Settings() {
   const qc = useQueryClient()
   const [form, setForm] = useState<FormState>(profileToForm(null))
   const [saved, setSaved] = useState(false)
-  const [showClearWorkouts, setShowClearWorkouts] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [clearDone, setClearDone] = useState(false)
 
@@ -96,7 +120,6 @@ export default function Settings() {
     staleTime: Infinity,
   })
 
-  // Profil yüklenince formu doldur
   useEffect(() => {
     if (profile !== undefined) setForm(profileToForm(profile))
   }, [profile])
@@ -115,15 +138,10 @@ export default function Settings() {
     return (v: string) => setForm(f => ({ ...f, [key]: v }))
   }
 
-  function handleSave() {
-    saveMutation.mutate(formToProfile(form))
-  }
-
   async function handleClearWorkouts() {
     setClearing(true)
     try {
       const userId = await getUserId()
-      // session_sets → workout_sessions (CASCADE ile silinir)
       const { data: sessions } = await supabase
         .from('workout_sessions')
         .select('id')
@@ -141,112 +159,132 @@ export default function Settings() {
       setTimeout(() => setClearDone(false), 3000)
     } finally {
       setClearing(false)
-      setShowClearWorkouts(false)
+      setShowConfirm(false)
     }
   }
 
   return (
-    <div className="min-h-screen bg-[#f7f5f2] text-stone-900">
-      <div className="px-5 pt-14 pb-6">
-        <p className="text-xs text-stone-400 font-medium uppercase tracking-wide mb-0.5">Hesap</p>
-        <h1 className="text-[32px] font-bold tracking-tight">Ayarlar</h1>
+    <div className="min-h-screen" style={{ background: C.bg, color: C.text }}>
+      <div className="px-5 pt-14 pb-5">
+        <p className="text-[11px] font-semibold uppercase tracking-widest mb-1" style={{ color: C.textLow }}>
+          Profil
+        </p>
+        <h1 className="text-[28px] font-extrabold tracking-tight leading-none" style={{ color: C.text }}>
+          Ayarlar
+        </h1>
       </div>
 
-      <div className="px-4 pb-10 space-y-6">
+      <div className="px-4 pb-10 space-y-5">
 
-        {/* Vücut Ölçüleri */}
-        <Section title="Vücut Ölçüleri">
-          <Row label="Boy" hint="Santimetre cinsinden">
-            <NumInput value={form.height_cm} onChange={set('height_cm')} min={100} max={250} suffix="cm" />
-          </Row>
-          <Row label="Kilo" hint="Kilogram cinsinden">
-            <NumInput value={form.weight_kg} onChange={set('weight_kg')} min={30} max={300} suffix="kg" />
-          </Row>
-        </Section>
+        {/* Vücut */}
+        <div>
+          <SectionLabel>Vücut Ölçüleri</SectionLabel>
+          <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+            <FieldRow label="Boy" suffix="cm" value={form.height_cm} onChange={set('height_cm')} />
+            <FieldRow label="Kilo" suffix="kg" value={form.weight_kg} onChange={set('weight_kg')} />
+            <div style={{ height: 1, background: 'transparent' }} /> {/* last-child border kaldırma */}
+          </div>
+        </div>
 
-        {/* Günlük Hedefler */}
-        <Section title="Günlük Hedefler">
-          <Row label="Kalori" hint="Dinlenme günü kalori hedefi">
-            <NumInput value={form.daily_calorie_goal} onChange={set('daily_calorie_goal')} min={500} max={10000} suffix="kcal" />
-          </Row>
-          <Row label="Antrenman Kalori" hint="Spor günü kalori hedefi (boş = dinlenme hedefi)">
-            <NumInput value={form.training_calorie_goal} onChange={set('training_calorie_goal')} min={500} max={10000} suffix="kcal" />
-          </Row>
-          <Row label="Protein">
-            <NumInput value={form.daily_protein_goal} onChange={set('daily_protein_goal')} min={0} max={1000} suffix="g" />
-          </Row>
-          <Row label="Karbonhidrat">
-            <NumInput value={form.daily_carb_goal} onChange={set('daily_carb_goal')} min={0} max={2000} suffix="g" />
-          </Row>
-          <Row label="Yağ">
-            <NumInput value={form.daily_fat_goal} onChange={set('daily_fat_goal')} min={0} max={1000} suffix="g" />
-          </Row>
-        </Section>
+        {/* Günlük hedefler */}
+        <div>
+          <SectionLabel>Günlük Hedefler</SectionLabel>
+          <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+            <FieldRow
+              label="Kalori"
+              hint="Dinlenme günü"
+              suffix="kcal"
+              value={form.daily_calorie_goal}
+              onChange={set('daily_calorie_goal')}
+            />
+            <FieldRow
+              label="Antrenman Kalori"
+              hint="Spor günü (boş = dinlenme hedefi)"
+              suffix="kcal"
+              value={form.training_calorie_goal}
+              onChange={set('training_calorie_goal')}
+              placeholder="—"
+            />
+            <FieldRow label="Protein"      suffix="g" value={form.daily_protein_goal} onChange={set('daily_protein_goal')} />
+            <FieldRow label="Karbonhidrat" suffix="g" value={form.daily_carb_goal}    onChange={set('daily_carb_goal')} />
+            <FieldRow label="Yağ"          suffix="g" value={form.daily_fat_goal}      onChange={set('daily_fat_goal')} />
+            <div style={{ height: 1, background: 'transparent' }} />
+          </div>
+        </div>
 
         {/* Kaydet */}
         <button
-          onClick={handleSave}
+          onClick={() => saveMutation.mutate(formToProfile(form))}
           disabled={saveMutation.isPending}
-          className={`w-full py-4 rounded-2xl font-bold text-sm transition-all shadow-sm flex items-center justify-center gap-2 ${
-            saved
-              ? 'bg-emerald-500 text-white'
-              : 'bg-slate-800 text-white active:bg-slate-700'
-          } disabled:opacity-50`}
+          className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl text-[15px] font-bold active:opacity-80 transition-opacity disabled:opacity-50"
+          style={saved
+            ? { background: C.successBg, color: C.successText, border: `1px solid ${C.successBorder}` }
+            : { background: C.text, color: C.bg }
+          }
         >
-          {saved ? <><Check size={16} />Kaydedildi</> : 'Kaydet'}
+          {saved ? <><Check size={15} /> Kaydedildi</> : 'Kaydet'}
         </button>
 
-        {/* Geliştirici Araçları */}
-        <Section title="Geliştirici Araçları">
-          <div className="px-5 py-4">
-            <p className="text-xs text-stone-400 mb-3 leading-relaxed">
-              Sadece test amaçlıdır. Antrenman geçmişini, setleri ve kişisel rekorları kalıcı olarak siler.
-            </p>
-            <button
-              onClick={() => setShowClearWorkouts(true)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-red-200 bg-red-50 text-red-600 text-sm font-semibold active:bg-red-100 transition-colors"
-            >
-              <Trash2 size={14} />
-              Antrenman Kayıtlarını Sil
-            </button>
-            {clearDone && (
-              <p className="text-xs text-emerald-600 font-semibold mt-2 flex items-center gap-1">
-                <Check size={12} />Tüm antrenman kayıtları silindi.
+        {/* Veriler */}
+        <div>
+          <SectionLabel>Veriler</SectionLabel>
+          <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+            <div className="px-5 py-4">
+              <p className="text-[14px] font-semibold mb-1" style={{ color: C.text }}>Antrenman Geçmişini Sil</p>
+              <p className="text-[12px] leading-relaxed mb-3" style={{ color: C.textLow }}>
+                Tüm seanslar, setler ve kişisel rekorlar kalıcı olarak silinir.
               </p>
-            )}
+              {clearDone ? (
+                <p className="text-[13px] font-semibold flex items-center gap-1.5" style={{ color: C.successText }}>
+                  <Check size={13} /> Silindi
+                </p>
+              ) : (
+                <button
+                  onClick={() => setShowConfirm(true)}
+                  className="flex items-center gap-1.5 text-[13px] font-semibold px-3.5 py-2 rounded-xl active:opacity-70 transition-opacity"
+                  style={{ background: C.dangerBg, color: C.danger, border: `1px solid ${C.dangerBorder}` }}
+                >
+                  <Trash2 size={13} />
+                  Sil
+                </button>
+              )}
+            </div>
           </div>
-        </Section>
+        </div>
 
       </div>
 
-      {/* Antrenman silme onay modalı */}
-      {showClearWorkouts && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-white rounded-3xl p-6">
+      {/* Onay modalı */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(26,23,20,0.5)' }}>
+          <div className="w-full max-w-sm rounded-3xl p-6" style={{ background: C.surface }}>
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
-                <AlertTriangle size={18} className="text-red-500" />
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: C.dangerBg }}>
+                <AlertTriangle size={18} style={{ color: C.danger }} />
               </div>
               <div>
-                <p className="font-bold text-stone-900">Emin misin?</p>
-                <p className="text-xs text-stone-400 mt-0.5">Bu işlem geri alınamaz</p>
+                <p className="text-[15px] font-bold" style={{ color: C.text }}>Emin misin?</p>
+                <p className="text-[12px] mt-0.5" style={{ color: C.textLow }}>Bu işlem geri alınamaz</p>
               </div>
             </div>
-            <p className="text-sm text-stone-500 mb-5 leading-relaxed">
-              Tüm antrenman seansları, setler ve kişisel rekorlar silinecek. Program ve beslenme kayıtlarına dokunulmaz.
+            <p className="text-[13px] leading-relaxed mb-5" style={{ color: C.textMid }}>
+              Tüm antrenman seansları, setler ve kişisel rekorlar silinecek. Beslenme ve vücut kayıtlarına dokunulmaz.
             </p>
             <div className="flex gap-3">
               <button
-                onClick={() => setShowClearWorkouts(false)}
+                onClick={() => setShowConfirm(false)}
                 disabled={clearing}
-                className="flex-1 py-3 rounded-xl border border-stone-200 text-stone-600 font-semibold text-sm active:bg-stone-50 disabled:opacity-50"
+                className="flex-1 py-3 rounded-2xl text-[14px] font-semibold active:opacity-70 transition-opacity disabled:opacity-40"
+                style={{ background: C.surfaceHigh, color: C.textMid }}
               >
                 Vazgeç
               </button>
               <button
                 onClick={handleClearWorkouts}
                 disabled={clearing}
-                className="flex-1 py-3 rounded-xl bg-red-500 text-white font-semibold text-sm active:bg-red-600 disabled:opacity-50"
+                className="flex-1 py-3 rounded-2xl text-[14px] font-bold active:opacity-70 transition-opacity disabled:opacity-40"
+                style={{ background: C.danger, color: '#fff' }}
               >
                 {clearing ? 'Siliniyor…' : 'Sil'}
               </button>
