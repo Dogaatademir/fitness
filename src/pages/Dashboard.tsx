@@ -140,10 +140,10 @@ async function fetchDashboard(): Promise<DashData> {
   const { data: user } = await supabase.auth.getUser()
   if (!user.user) throw new Error('Oturum açılmamış')
 
-  // Streak için RPC'den bağımsız olarak son 90 günlük tamamlanmış session tarihlerini çek
+  // Streak + son antrenman için RPC'den bağımsız sorgu
   const streakSince = new Date()
   streakSince.setDate(streakSince.getDate() - 90)
-  const [rpcResult, streakRows] = await Promise.all([
+  const [rpcResult, recentSessionsResult] = await Promise.all([
     supabase.rpc('get_dashboard_data', {
       p_user_id: user.user.id,
       p_today: todayStr,
@@ -151,7 +151,7 @@ async function fetchDashboard(): Promise<DashData> {
     }),
     supabase
       .from('workout_sessions')
-      .select('date')
+      .select('id, date, started_at, ended_at, program_day_id')
       .eq('user_id', user.user.id)
       .not('ended_at', 'is', null)
       .gte('date', localDateStr(streakSince))
@@ -159,6 +159,7 @@ async function fetchDashboard(): Promise<DashData> {
   ])
   if (rpcResult.error) throw rpcResult.error
   const { data: rpc } = rpcResult
+  const recentSessions = recentSessionsResult.data ?? []
 
   const r = (typeof rpc === 'string' ? JSON.parse(rpc) : rpc) as Record<string, unknown>
   const profile       = r.profile           as Record<string, number> | null
@@ -216,9 +217,8 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
     (acc, s) => acc + ((s.weight_kg as number) || 0) * ((s.reps as number) || 0), 0
   )
 
-  // Streak: RPC'den bağımsız, son 90 günlük gerçek veriden hesapla
-  // İki antrenman arasındaki boşluk 2 güne kadar tolere edilir; 3+ gün seriyi keser.
-  const streakDates = [...new Set((streakRows.data ?? []).map(s => s.date))].sort().reverse()
+  // Streak: son 90 günlük gerçek veriden hesapla (2 güne kadar boşluk tolere edilir)
+  const streakDates = [...new Set(recentSessions.map(s => s.date))].sort().reverse()
   let streak = 0
   if (streakDates.length > 0) {
     const daysSinceLast = Math.round(
@@ -236,14 +236,14 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
     }
   }
 
-  const weekSessions = (allSessions as { date: string; ended_at?: string }[]).filter(s => s.date >= weekStart && s.ended_at)
-  const lastSession  = lastSessionId
-    ? (allSessions as LastSession[]).find(s => s.id === lastSessionId) ?? null
-    : null
+  // lastSession: recentSessions'dan al — RPC haftalık sınırlı döndürebilir
+  const lastSession = recentSessions[0] ?? null
   const lastSessionSets = lastSetsList.filter(s => (s as Record<string, unknown>).completed).length
   const lastSessionName = lastSession
     ? programDays.find(d => d.id === lastSession.program_day_id)?.day_name ?? ''
     : ''
+
+  const weekSessions = (allSessions as { date: string; ended_at?: string }[]).filter(s => s.date >= weekStart && s.ended_at)
 
   // weekDays: sadece tamamlanan session'lar yeşil gösterilir
   const weekDayDates = Array.from({ length: 7 }, (_, i) => {
@@ -251,9 +251,7 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
     d.setDate(d.getDate() + i)
     return localDateStr(d)
   })
-  const completedSessionDates = new Set(
-    (allSessions as { date: string; ended_at?: string }[]).filter(s => s.ended_at).map(s => s.date)
-  )
+  const completedSessionDates = new Set(recentSessions.map(s => s.date))
   const weekDays = weekDayDates.map(d => completedSessionDates.has(d))
 
   const calorieGoal = todayDay && profile?.training_calorie_goal
@@ -404,12 +402,15 @@ export default function Dashboard() {
     ? +(data.latestBody.weight_kg - data.prevBody.weight_kg).toFixed(1)
     : null
   const isNewUser = !data.activeProgram && !data.lastSession && !data.hasProfile
-  const isWorkoutDone = !!data.todaySession?.ended_at
-  const isWorkoutInProgress = !!data.todaySession && !data.todaySession?.ended_at
+  // todaySession yalnızca todayDay ile aynı güne aitse geçerli sayılır
+  const todaySessionForDay = data.todaySession?.program_day_id === data.todayDay?.id
+    ? data.todaySession : null
+  const isWorkoutDone = !!todaySessionForDay?.ended_at
+  const isWorkoutInProgress = !!todaySessionForDay && !todaySessionForDay.ended_at
 
   function handleWorkoutTap() {
     if (isWorkoutDone) {
-      navigate(`/workout/history/${data!.todaySession!.id}`)
+      navigate(`/workout/history/${todaySessionForDay!.id}`)
     } else if (isWorkoutInProgress) {
       navigate('/workout/start', { state: { dayId: data!.todayDay?.id } })
     } else {
@@ -531,7 +532,7 @@ export default function Dashboard() {
                     </p>
                     <p className="text-sm" style={{ color: C.textMid }}>
                       {data.todayExercises.length} egzersiz
-                      {isWorkoutDone && ` · ${formatDuration(data.todaySession!.started_at, data.todaySession!.ended_at)}`}
+                      {isWorkoutDone && ` · ${formatDuration(todaySessionForDay!.started_at, todaySessionForDay!.ended_at)}`}
                     </p>
                   </div>
                   <ArrowRight size={18} style={{ color: C.textLow, marginBottom: 4 }} />
