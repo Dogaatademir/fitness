@@ -171,7 +171,7 @@ async function fetchDashboard(): Promise<DashData> {
   const bodyHistory   = (r.body_history      as BodyMeasurement[]) ?? []
 const programDays   = (r.program_days      as ProgramDay[]) ?? []
   const todaySession  = r.today_session      as TodaySession | null
-  const lastSessionId = r.last_session_id    as string | null
+
 
   let todayDay: ProgramDay | null = null
   let todayExercises: Exercise[] = []
@@ -182,15 +182,21 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
       .sort((a, b) => a.order_index - b.order_index)
 
     if (activeDays.length > 0) {
-      // Son tamamlanan session'ın hangi gün olduğuna bak, sıradakini hesapla
-      const completedSessions = (allSessions as { program_day_id: string; ended_at?: string }[])
-        .filter(s => s.ended_at)
-      const lastCompleted = completedSessions[0] ?? null
-      const lastDayIndex = lastCompleted
-        ? activeDays.findIndex(d => d.id === lastCompleted.program_day_id)
-        : -1
-      const nextIndex = lastDayIndex >= 0 ? (lastDayIndex + 1) % activeDays.length : 0
-      todayDay = activeDays[nextIndex]
+      // Bugün tamamlanmış bir session varsa o günü göster
+      const todayCompleted = recentSessions.find(s => s.date === todayStr)
+      if (todayCompleted) {
+        todayDay = activeDays.find(d => d.id === todayCompleted.program_day_id) ?? null
+      } else {
+        // Yoksa son tamamlanan session'dan sonraki sıradaki günü hesapla
+        const completedSessions = (allSessions as { program_day_id: string; ended_at?: string }[])
+          .filter(s => s.ended_at)
+        const lastCompleted = completedSessions[0] ?? null
+        const lastDayIndex = lastCompleted
+          ? activeDays.findIndex(d => d.id === lastCompleted.program_day_id)
+          : -1
+        const nextIndex = lastDayIndex >= 0 ? (lastDayIndex + 1) % activeDays.length : 0
+        todayDay = activeDays[nextIndex]
+      }
     }
 
     // exerciseDb.getByDay ve egzersiz adı sorgusu paralel çalışsın
