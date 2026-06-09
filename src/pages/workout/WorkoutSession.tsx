@@ -156,6 +156,7 @@ interface SetRowProps {
 
 function SetRow({ set, index, exercise, prevSet, onChange, onComplete, onDelete }: SetRowProps) {
   const isStrength = !exercise.type || exercise.type === 'strength'
+  const isBodyweight = exercise.type === 'bodyweight'
   const isCardio = exercise.type === 'cardio'
   const isTimed = exercise.type === 'timed'
   const [shakeKey, setShakeKey] = useState(0)
@@ -169,7 +170,7 @@ function SetRow({ set, index, exercise, prevSet, onChange, onComplete, onDelete 
     if (!ok) {
       setShakeFields({
         weight:   isStrength && !set.weight_kg,
-        reps:     isStrength && !set.reps,
+        reps:     (isStrength || isBodyweight) && !set.reps,
         duration: isCardio && !set.duration_minutes && !set.distance_km,
         distance: false,
         held:     isTimed && !set.held_seconds,
@@ -263,6 +264,33 @@ function SetRow({ set, index, exercise, prevSet, onChange, onComplete, onDelete 
               <span className="text-[10px] text-stone-400 font-medium ml-0.5">tekrar</span>
             </div>
           </>
+        )}
+
+        {isBodyweight && (
+          <div className="flex items-center gap-1 flex-1">
+            <button
+              onClick={() => onChange(set.id, { reps: Math.max(0, (set.reps ?? 0) - 1) })}
+              className="w-7 h-7 rounded-lg border border-stone-200 flex items-center justify-center text-stone-400 active:bg-stone-100 flex-shrink-0"
+            >
+              <Minus size={12} />
+            </button>
+            <input
+              type="number"
+              inputMode="numeric"
+              value={set.reps || ''}
+              placeholder={prevSet?.reps?.toString() ?? exercise.target_reps_min?.toString() ?? '—'}
+              onChange={e => onChange(set.id, { reps: parseInt(e.target.value) || 0 })}
+              key={`r-${shakeKey}`}
+              className={`w-14 text-center text-sm font-semibold bg-transparent border-b outline-none py-1 tabular-nums focus:border-slate-400 ${shakeFields.reps ? 'shake border-red-400' : 'border-stone-200'}`}
+            />
+            <button
+              onClick={() => onChange(set.id, { reps: (set.reps ?? 0) + 1 })}
+              className="w-7 h-7 rounded-lg border border-stone-200 flex items-center justify-center text-stone-400 active:bg-stone-100 flex-shrink-0"
+            >
+              <Plus size={12} />
+            </button>
+            <span className="text-[10px] text-stone-400 font-medium ml-0.5">tekrar</span>
+          </div>
         )}
 
         {isCardio && (
@@ -378,6 +406,9 @@ function ExerciseCard({
                 <span className="flex-1 text-[10px] font-semibold text-stone-400 uppercase tracking-wide text-center">Ağırlık</span>
                 <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-wide text-center w-32">Tekrar</span>
               </>
+            )}
+            {exercise.type === 'bodyweight' && (
+              <span className="flex-1 text-[10px] font-semibold text-stone-400 uppercase tracking-wide">Tekrar</span>
             )}
             {exercise.type === 'cardio' && (
               <span className="flex-1 text-[10px] font-semibold text-stone-400 uppercase tracking-wide">Süre / Mesafe</span>
@@ -628,6 +659,7 @@ export default function WorkoutSession() {
         const exercise = exercises.find(e => e.id === set.exercise_id)
         const type = exercise?.type ?? 'strength'
         if (type === 'strength' && (!(set.weight_kg) || !(set.reps))) { valid = false; return prev }
+        if (type === 'bodyweight' && !(set.reps)) { valid = false; return prev }
         if (type === 'timed' && !(set.held_seconds)) { valid = false; return prev }
         if (type === 'cardio' && !(set.duration_minutes) && !(set.distance_km)) { valid = false; return prev }
       }
@@ -830,19 +862,38 @@ export default function WorkoutSession() {
       </div>
 
       <div className="px-4 pt-4 pb-10 space-y-3">
-        {exercises.map(exercise => (
-          <ExerciseCard
-            key={exercise.id}
-            exercise={exercise}
-            sets={sets.filter(s => s.exercise_id === exercise.id)}
-            allSets={allHistorySets}
-            onAddSet={handleAddSet}
-            onSetChange={handleSetChange}
-            onSetComplete={handleSetComplete}
-            onSetDelete={handleSetDelete}
-            newPRs={newPRs}
-          />
-        ))}
+        {(['warmup', 'main', 'cooldown'] as const).map(phase => {
+          const phaseExs = exercises.filter(ex => (ex.phase ?? 'main') === phase)
+          if (phaseExs.length === 0) return null
+          const labels = { warmup: '🔥 Isınma', main: '💪 Antrenman', cooldown: '🧘 Soğuma' }
+          return (
+            <div key={phase} className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1" style={{ background: 'rgba(26,23,20,0.10)' }} />
+                <span className="text-[12px] font-extrabold uppercase tracking-widest px-3 py-1"
+                  style={{
+                    color: phase === 'warmup' ? '#ea580c' : phase === 'cooldown' ? '#4f46e5' : 'rgba(26,23,20,0.50)',
+                  }}>
+                  {labels[phase]}
+                </span>
+                <div className="h-px flex-1" style={{ background: 'rgba(26,23,20,0.10)' }} />
+              </div>
+              {phaseExs.map(exercise => (
+                <ExerciseCard
+                  key={exercise.id}
+                  exercise={exercise}
+                  sets={sets.filter(s => s.exercise_id === exercise.id)}
+                  allSets={allHistorySets}
+                  onAddSet={handleAddSet}
+                  onSetChange={handleSetChange}
+                  onSetComplete={handleSetComplete}
+                  onSetDelete={handleSetDelete}
+                  newPRs={newPRs}
+                />
+              ))}
+            </div>
+          )
+        })}
 
         {/* Notlar */}
         <div className="rounded-2xl p-5" style={{ background: SC.surface, border: `1px solid ${SC.border}` }}>

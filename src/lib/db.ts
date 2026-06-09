@@ -166,6 +166,7 @@ function mapExercise(r: Record<string, unknown>): Exercise {
     name: r.name as string,
     muscle_group: r.muscle_group as string,
     type: (r.type as Exercise['type']) ?? 'strength',
+    phase: (r.phase as Exercise['phase']) ?? 'main',
     target_sets: r.target_sets as number | undefined,
     target_reps_min: r.target_reps_min as number | undefined,
     target_reps_max: r.target_reps_max as number | undefined,
@@ -317,8 +318,8 @@ export const prDb = {
     if (!data) return undefined
     return { id: data.id, exercise_name: data.exercise_name, max_weight_kg: data.max_weight_kg, max_volume: data.max_volume, achieved_at: data.achieved_at }
   },
-  async upsert(exerciseName: string, weightKg: number, volume: number, type?: 'strength' | 'cardio' | 'timed'): Promise<boolean> {
-    if (type === 'cardio' || type === 'timed') return false
+  async upsert(exerciseName: string, weightKg: number, volume: number, type?: 'strength' | 'cardio' | 'timed' | 'bodyweight'): Promise<boolean> {
+    if (type === 'cardio' || type === 'timed' || type === 'bodyweight') return false
     const userId = await getUserId()
     const existing = await this.getByExercise(exerciseName)
 

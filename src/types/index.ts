@@ -21,7 +21,8 @@ export interface Exercise {
   program_day_id: string
   name: string
   muscle_group: string // Örn: 'Göğüs', 'Sırt', 'Kardiyo'
-  type?: 'strength' | 'cardio' | 'timed'
+  type?: 'strength' | 'cardio' | 'timed' | 'bodyweight'
+  phase?: 'warmup' | 'main' | 'cooldown'
   
   // Ağırlık / Güç Antrenmanı Hedefleri
   target_sets?: number

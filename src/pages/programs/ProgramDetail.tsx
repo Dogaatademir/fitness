@@ -23,7 +23,14 @@ const C = {
 }
 
 const MUSCLE_GROUPS = ['Göğüs', 'Sırt', 'Omuz', 'Biceps', 'Triceps', 'Karın', 'Bacak', 'Arka Bacak', 'Kardiyo', 'Diğer']
-type ExType = 'strength' | 'cardio' | 'timed'
+type ExType = 'strength' | 'cardio' | 'timed' | 'bodyweight'
+type ExPhase = 'warmup' | 'main' | 'cooldown'
+
+const PHASE_LABELS: Record<ExPhase, string> = {
+  warmup:   '🔥 Isınma',
+  main:     '💪 Antrenman',
+  cooldown: '🧘 Soğuma',
+}
 type ModalState =
   | { type: 'addDay' }
   | { type: 'addExercise'; dayId: string }
@@ -93,7 +100,7 @@ function ModalHeader({ title, onClose }: { title: string; onClose: () => void })
 }
 
 const defaultNew = () => ({
-  name: '', type: 'strength' as ExType, muscle_group: 'Göğüs',
+  name: '', type: 'strength' as ExType, phase: 'main' as ExPhase, muscle_group: 'Göğüs',
   target_sets: 3, target_reps_min: 8, target_reps_max: 12,
   rest_seconds: 90, target_duration_minutes: 15, target_duration_seconds: 40,
 })
@@ -154,6 +161,7 @@ export default function ProgramDetail() {
       name: newEx.name.trim(),
       muscle_group: newEx.muscle_group,
       type: newEx.type,
+      phase: newEx.phase,
       target_sets: newEx.type !== 'cardio' ? newEx.target_sets : undefined,
       target_reps_min: newEx.type === 'strength' ? newEx.target_reps_min : undefined,
       target_reps_max: newEx.type === 'strength' ? newEx.target_reps_max : undefined,
@@ -290,45 +298,57 @@ export default function ProgramDetail() {
                 </div>
               ) : (
                 <div>
-                  {dayExs.map((ex, ei) => (
-                    <div key={ex.id}
-                      className="px-5 py-3.5 flex items-center gap-3"
-                      style={ei > 0 ? { borderTop: `1px solid ${C.borderSub}` } : undefined}>
-                      {/* Sıra no */}
-                      <span className="w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center flex-shrink-0"
-                        style={{ background: C.surfaceHigh, color: C.textLow }}>
-                        {ei + 1}
-                      </span>
-                      {/* Tip ikonu */}
-                      {ex.type === 'cardio'
-                        ? <Activity size={13} style={{ color: '#b45309', flexShrink: 0 }} />
-                        : ex.type === 'timed'
-                          ? <Timer size={13} style={{ color: '#7c3aed', flexShrink: 0 }} />
-                          : <Dumbbell size={13} style={{ color: C.textLow, flexShrink: 0 }} />}
-                      {/* İçerik */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[14px] font-semibold truncate" style={{ color: C.text }}>
-                          {ex.name}
-                        </p>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
-                            style={{ background: C.surfaceHigh, color: C.textLow }}>
-                            {ex.muscle_group}
-                          </span>
-                          <span className="text-[11px] font-medium" style={{ color: C.textMid }}>
-                            {exTarget(ex)}
-                          </span>
+                  {(['warmup', 'main', 'cooldown'] as ExPhase[]).map(phase => {
+                    const phaseExs = dayExs.filter(ex => (ex.phase ?? 'main') === phase)
+                    if (phaseExs.length === 0) return null
+                    return (
+                      <div key={phase}>
+                        {/* Phase başlığı */}
+                        <div className="px-5 py-2" style={{ background: C.surfaceHigh, borderTop: `1px solid ${C.borderSub}` }}>
+                          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: C.textLow }}>
+                            {PHASE_LABELS[phase]}
+                          </p>
                         </div>
+                        {phaseExs.map((ex, ei) => (
+                          <div key={ex.id}
+                            className="px-5 py-3.5 flex items-center gap-3"
+                            style={ei > 0 ? { borderTop: `1px solid ${C.borderSub}` } : undefined}>
+                            <span className="w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center flex-shrink-0"
+                              style={{ background: C.surfaceHigh, color: C.textLow }}>
+                              {ei + 1}
+                            </span>
+                            {ex.type === 'cardio'
+                              ? <Activity size={13} style={{ color: '#b45309', flexShrink: 0 }} />
+                              : ex.type === 'timed'
+                                ? <Timer size={13} style={{ color: '#7c3aed', flexShrink: 0 }} />
+                                : ex.type === 'bodyweight'
+                                  ? <Activity size={13} style={{ color: '#0891b2', flexShrink: 0 }} />
+                                  : <Dumbbell size={13} style={{ color: C.textLow, flexShrink: 0 }} />}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[14px] font-semibold truncate" style={{ color: C.text }}>
+                                {ex.name}
+                              </p>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
+                                  style={{ background: C.surfaceHigh, color: C.textLow }}>
+                                  {ex.muscle_group}
+                                </span>
+                                <span className="text-[11px] font-medium" style={{ color: C.textMid }}>
+                                  {exTarget(ex)}
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => setEditingEx(ex)}
+                              className="w-8 h-8 flex items-center justify-center rounded-lg active:scale-95 transition-transform flex-shrink-0"
+                              style={{ color: C.textLow }}>
+                              <Edit2 size={13} />
+                            </button>
+                          </div>
+                        ))}
                       </div>
-                      {/* Düzenle */}
-                      <button
-                        onClick={() => setEditingEx(ex)}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg active:scale-95 transition-transform flex-shrink-0"
-                        style={{ color: C.textLow }}>
-                        <Edit2 size={13} />
-                      </button>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
 
@@ -388,12 +408,22 @@ export default function ProgramDetail() {
                 onChange={e => setNewEx(v => ({ ...v, name: e.target.value }))}
                 className={INPUT} style={inputStyle} />
             </Field>
+            <Field label="Bölüm">
+              <select value={newEx.phase}
+                onChange={e => setNewEx(v => ({ ...v, phase: e.target.value as ExPhase }))}
+                className={SELECT} style={inputStyle}>
+                <option value="warmup">Isınma</option>
+                <option value="main">Antrenman</option>
+                <option value="cooldown">Soğuma</option>
+              </select>
+            </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Tür">
                 <select value={newEx.type}
                   onChange={e => setNewEx(v => ({ ...v, type: e.target.value as ExType }))}
                   className={SELECT} style={inputStyle}>
                   <option value="strength">Ağırlık</option>
+                  <option value="bodyweight">Vücut Ağırlığı</option>
                   <option value="cardio">Kardiyo</option>
                   <option value="timed">Zamanlı</option>
                 </select>
@@ -479,12 +509,22 @@ export default function ProgramDetail() {
                 onChange={e => setEditingEx(v => v ? { ...v, name: e.target.value } : null)}
                 className={INPUT} style={inputStyle} />
             </Field>
+            <Field label="Bölüm">
+              <select value={editingEx.phase ?? 'main'}
+                onChange={e => setEditingEx(v => v ? { ...v, phase: e.target.value as ExPhase } : null)}
+                className={SELECT} style={inputStyle}>
+                <option value="warmup">Isınma</option>
+                <option value="main">Antrenman</option>
+                <option value="cooldown">Soğuma</option>
+              </select>
+            </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Tür">
                 <select value={editingEx.type || 'strength'}
                   onChange={e => setEditingEx(v => v ? { ...v, type: e.target.value as ExType } : null)}
                   className={SELECT} style={inputStyle}>
                   <option value="strength">Ağırlık</option>
+                  <option value="bodyweight">Vücut Ağırlığı</option>
                   <option value="cardio">Kardiyo</option>
                   <option value="timed">Zamanlı</option>
                 </select>
