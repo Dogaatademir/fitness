@@ -1,75 +1,38 @@
 import { createContext, useContext, useEffect, useState } from 'react'
+import type { User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { ensureSignedIn } from '../lib/auth'
 
-type Status = 'ready' | 'error'
+type AuthState =
+  | { status: 'loading' }
+  | { status: 'signed-in'; user: User }
+  | { status: 'signed-out' }
 
-const AuthContext = createContext<{ status: Status; error: string }>({
-  status: 'ready',
-  error: '',
-})
-
-// Supabase session localStorage'da 'sb-*-auth-token' anahtarıyla saklar.
-// Sayfa açılır açılmaz senkron kontrol edip spinner'ı tamamen atlıyoruz.
-function hasLocalSession(): boolean {
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i) ?? ''
-      if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
-        const val = localStorage.getItem(key)
-        if (!val) continue
-        const parsed = JSON.parse(val)
-        const exp: number = parsed?.expires_at ?? 0
-        // Token süresi dolmamışsa geçerli say
-        if (exp * 1000 > Date.now()) return true
-      }
-    }
-  } catch {}
-  return false
-}
+const AuthContext = createContext<AuthState>({ status: 'loading' })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [status, setStatus] = useState<Status>('ready')
-  const [error, setError] = useState('')
+  const [state, setState] = useState<AuthState>({ status: 'loading' })
 
   useEffect(() => {
-    // İlk açılışta session yoksa (yeni kullanıcı) arka planda giriş yap
-    if (!hasLocalSession()) {
-      ensureSignedIn().catch(e => {
-        setError(e.message)
-        setStatus('error')
-      })
-    }
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') {
-        ensureSignedIn().catch(e => {
-          setError(e.message)
-          setStatus('error')
-        })
-      }
+    supabase.auth.getSession().then(({ data }) => {
+      setState(
+        data.session?.user
+          ? { status: 'signed-in', user: data.session.user }
+          : { status: 'signed-out' }
+      )
     })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setState(
+        session?.user
+          ? { status: 'signed-in', user: session.user }
+          : { status: 'signed-out' }
+      )
+    })
+
     return () => subscription.unsubscribe()
   }, [])
 
-  if (status === 'error') {
-    return (
-      <div className="min-h-screen bg-[#f7f5f2] flex items-center justify-center px-8">
-        <div className="text-center">
-          <p className="text-base font-bold text-stone-800 mb-2">Bağlantı Hatası</p>
-          <p className="text-sm text-stone-500 leading-relaxed">{error}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="mt-4 px-4 py-2 rounded-xl bg-slate-700 text-white text-sm font-semibold"
-          >
-            Tekrar Dene
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  return <AuthContext.Provider value={{ status, error }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>
 }
 
 export const useAuth = () => useContext(AuthContext)

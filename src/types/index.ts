@@ -129,6 +129,7 @@ export interface WaterLog {
 export interface UserProfile {
   height_cm: number
   weight_kg: number
+  birth_date?: string
   daily_calorie_goal: number
   daily_protein_goal: number
   daily_carb_goal: number

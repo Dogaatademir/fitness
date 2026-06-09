@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { bodyDb } from '../../lib/db'
+import { bodyDb, profileDb } from '../../lib/db'
 import { today } from '../../lib/storage'
 import { QK } from '../../lib/queryClient'
 
@@ -69,17 +69,21 @@ export default function BodyNew() {
   async function handleSave() {
     if (!form.weight_kg) { setError('Kilo alanı zorunlu.'); return }
     setError('')
+    const weight_kg = parseFloat(form.weight_kg)
     await bodyDb.create({
       date: form.date,
-      weight_kg: parseFloat(form.weight_kg),
+      weight_kg,
       waist_cm:     form.waist_cm     ? parseFloat(form.waist_cm)     : undefined,
       chest_cm:     form.chest_cm     ? parseFloat(form.chest_cm)     : undefined,
       arm_cm:       form.arm_cm       ? parseFloat(form.arm_cm)       : undefined,
       hip_cm:       form.hip_cm       ? parseFloat(form.hip_cm)       : undefined,
       body_fat_pct: form.body_fat_pct ? parseFloat(form.body_fat_pct) : undefined,
     })
+    const profile = await profileDb.get()
+    await profileDb.save({ ...(profile ?? { height_cm: 0, daily_calorie_goal: 1600, daily_protein_goal: 160, daily_carb_goal: 135, daily_fat_goal: 47 }), weight_kg })
     qc.invalidateQueries({ queryKey: QK.body })
     qc.invalidateQueries({ queryKey: QK.dashboard })
+    qc.invalidateQueries({ queryKey: QK.profile })
     navigate('/body', { replace: true })
   }
 

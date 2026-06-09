@@ -1,16 +1,19 @@
 import { supabase } from './supabase'
+import { clearUserIdCache } from './supabase'
 
-const EMAIL = import.meta.env.VITE_APP_EMAIL as string
-const PASSWORD = import.meta.env.VITE_APP_PASSWORD as string
+export async function signIn(email: string, password: string): Promise<void> {
+  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  if (error) throw new Error(error.message)
+}
 
-export async function ensureSignedIn(): Promise<void> {
-  const { data } = await supabase.auth.getSession()
-  if (data.session) return
+export async function signUp(email: string, password: string): Promise<{ needsConfirmation: boolean }> {
+  const { data, error } = await supabase.auth.signUp({ email, password })
+  if (error) throw new Error(error.message)
+  // session null ise e-posta onayı gerekiyor
+  return { needsConfirmation: !data.session }
+}
 
-  if (!EMAIL || !PASSWORD) {
-    throw new Error('VITE_APP_EMAIL ve VITE_APP_PASSWORD .env dosyasında tanımlı olmalı.')
-  }
-
-  const { error } = await supabase.auth.signInWithPassword({ email: EMAIL, password: PASSWORD })
-  if (error) throw new Error(`Otomatik giriş başarısız: ${error.message}`)
+export async function signOut(): Promise<void> {
+  clearUserIdCache()
+  await supabase.auth.signOut()
 }

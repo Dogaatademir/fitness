@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Check, Trash2, AlertTriangle } from 'lucide-react'
+import { Check, LogOut } from 'lucide-react'
 import { profileDb } from '../lib/db'
-import { supabase, getUserId } from '../lib/supabase'
+import { signOut } from '../lib/auth'
 import { QK } from '../lib/queryClient'
 import type { UserProfile } from '../types'
 
@@ -61,7 +61,7 @@ function formToProfile(f: FormState): UserProfile {
 }
 
 function FieldRow({
-  label, hint, value, onChange, suffix, type = 'number', placeholder,
+  label, hint, value, onChange, suffix, type = 'number', placeholder, readOnly,
 }: {
   label: string
   hint?: string
@@ -70,6 +70,7 @@ function FieldRow({
   suffix?: string
   type?: string
   placeholder?: string
+  readOnly?: boolean
 }) {
   return (
     <div
@@ -87,8 +88,12 @@ function FieldRow({
           value={value}
           onChange={e => onChange(e.target.value)}
           placeholder={placeholder ?? '—'}
-          className="w-20 text-right text-[14px] font-semibold bg-transparent outline-none pb-0.5"
-          style={{ color: C.text, borderBottom: `1px solid ${C.border}` }}
+          readOnly={readOnly}
+          className={`${type === 'date' ? 'w-32' : 'w-20'} text-right text-[14px] font-semibold bg-transparent outline-none pb-0.5`}
+          style={{
+            color: readOnly ? C.textMid : C.text,
+            borderBottom: readOnly ? 'none' : `1px solid ${C.border}`,
+          }}
         />
         {suffix && (
           <span className="text-[12px] font-medium w-8" style={{ color: C.textMid }}>{suffix}</span>
@@ -113,9 +118,6 @@ export default function Settings() {
   const qc = useQueryClient()
   const [form, setForm] = useState<FormState>(profileToForm(null))
   const [saved, setSaved] = useState(false)
-  const [showConfirm, setShowConfirm] = useState(false)
-  const [clearing, setClearing] = useState(false)
-  const [clearDone, setClearDone] = useState(false)
 
   const { data: profile } = useQuery({
     queryKey: QK.profile,
@@ -141,30 +143,6 @@ export default function Settings() {
     return (v: string) => setForm(f => ({ ...f, [key]: v }))
   }
 
-  async function handleClearWorkouts() {
-    setClearing(true)
-    try {
-      const userId = await getUserId()
-      const { data: sessions } = await supabase
-        .from('workout_sessions')
-        .select('id')
-        .eq('user_id', userId)
-      if (sessions && sessions.length > 0) {
-        const ids = sessions.map(s => s.id)
-        await supabase.from('session_sets').delete().in('session_id', ids)
-        await supabase.from('workout_sessions').delete().eq('user_id', userId)
-      }
-      await supabase.from('personal_records').delete().eq('user_id', userId)
-      qc.invalidateQueries({ queryKey: QK.workoutHistory })
-      qc.invalidateQueries({ queryKey: QK.dashboard })
-      qc.invalidateQueries({ queryKey: ['workout-page'] })
-      setClearDone(true)
-      setTimeout(() => setClearDone(false), 3000)
-    } finally {
-      setClearing(false)
-      setShowConfirm(false)
-    }
-  }
 
   return (
     <div className="min-h-screen" style={{ background: C.bg, color: C.text }}>
@@ -184,8 +162,8 @@ export default function Settings() {
           <SectionLabel>Vücut Ölçüleri</SectionLabel>
           <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
             <FieldRow label="Boy" suffix="cm" value={form.height_cm} onChange={set('height_cm')} />
-            <FieldRow label="Kilo" suffix="kg" value={form.weight_kg} onChange={set('weight_kg')} />
-            <div style={{ height: 1, background: 'transparent' }} /> {/* last-child border kaldırma */}
+            <FieldRow label="Kilo" suffix="kg" value={form.weight_kg} onChange={set('weight_kg')} hint="Ölçüm sayfasından güncellenir" readOnly />
+<div style={{ height: 1, background: 'transparent' }} />
           </div>
         </div>
 
@@ -229,73 +207,19 @@ export default function Settings() {
           {saved ? <><Check size={15} /> Kaydedildi</> : 'Kaydet'}
         </button>
 
-        {/* Veriler */}
-        <div>
-          <SectionLabel>Veriler</SectionLabel>
-          <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-            <div className="px-5 py-4">
-              <p className="text-[14px] font-semibold mb-1" style={{ color: C.text }}>Antrenman Geçmişini Sil</p>
-              <p className="text-[12px] leading-relaxed mb-3" style={{ color: C.textLow }}>
-                Tüm seanslar, setler ve kişisel rekorlar kalıcı olarak silinir.
-              </p>
-              {clearDone ? (
-                <p className="text-[13px] font-semibold flex items-center gap-1.5" style={{ color: C.successText }}>
-                  <Check size={13} /> Silindi
-                </p>
-              ) : (
-                <button
-                  onClick={() => setShowConfirm(true)}
-                  className="flex items-center gap-1.5 text-[13px] font-semibold px-3.5 py-2 rounded-xl active:opacity-70 transition-opacity"
-                  style={{ background: C.dangerBg, color: C.danger, border: `1px solid ${C.dangerBorder}` }}
-                >
-                  <Trash2 size={13} />
-                  Sil
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+
+        {/* Çıkış */}
+        <button
+          onClick={signOut}
+          className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl text-[15px] font-bold active:opacity-80 transition-opacity"
+          style={{ background: C.dangerBg, color: C.danger, border: `1px solid ${C.dangerBorder}` }}
+        >
+          <LogOut size={15} />
+          Çıkış Yap
+        </button>
 
       </div>
 
-      {/* Onay modalı */}
-      {showConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(26,23,20,0.5)' }}>
-          <div className="w-full max-w-sm rounded-3xl p-6" style={{ background: C.surface }}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ background: C.dangerBg }}>
-                <AlertTriangle size={18} style={{ color: C.danger }} />
-              </div>
-              <div>
-                <p className="text-[15px] font-bold" style={{ color: C.text }}>Emin misin?</p>
-                <p className="text-[12px] mt-0.5" style={{ color: C.textLow }}>Bu işlem geri alınamaz</p>
-              </div>
-            </div>
-            <p className="text-[13px] leading-relaxed mb-5" style={{ color: C.textMid }}>
-              Tüm antrenman seansları, setler ve kişisel rekorlar silinecek. Beslenme ve vücut kayıtlarına dokunulmaz.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowConfirm(false)}
-                disabled={clearing}
-                className="flex-1 py-3 rounded-2xl text-[14px] font-semibold active:opacity-70 transition-opacity disabled:opacity-40"
-                style={{ background: C.surfaceHigh, color: C.textMid }}
-              >
-                Vazgeç
-              </button>
-              <button
-                onClick={handleClearWorkouts}
-                disabled={clearing}
-                className="flex-1 py-3 rounded-2xl text-[14px] font-bold active:opacity-70 transition-opacity disabled:opacity-40"
-                style={{ background: C.danger, color: '#fff' }}
-              >
-                {clearing ? 'Siliniyor…' : 'Sil'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

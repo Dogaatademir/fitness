@@ -80,6 +80,7 @@ export default function MainLayout() {
                 )}
               </NavLink>
             ))}
+
           </div>
         </div>
       </nav>

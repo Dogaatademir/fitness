@@ -23,6 +23,7 @@ export const profileDb = {
     return {
       height_cm: data.height_cm,
       weight_kg: data.weight_kg,
+      birth_date: data.birth_date ?? undefined,
       daily_calorie_goal: data.daily_calorie_goal,
       daily_protein_goal: data.daily_protein_goal,
       daily_carb_goal: data.daily_carb_goal,
