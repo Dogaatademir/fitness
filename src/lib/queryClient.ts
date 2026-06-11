@@ -53,7 +53,7 @@ export function initPersistCache(userId: string) {
     key: cacheKey,
   })
 
-  const { unsubscribe } = persistQueryClient({
+  const [unsubscribe] = persistQueryClient({
     queryClient,
     persister,
     maxAge: 1000 * 60 * 60 * 24,
