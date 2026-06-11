@@ -10,7 +10,7 @@ import { supabase, getUserId } from '../../lib/supabase'
 import { today } from '../../lib/storage'
 import { QK } from '../../lib/queryClient'
 import { estimateWorkoutCalories } from '../../lib/api'
-import { getAgeFromBirthDate } from '../../lib/bmr'
+import { getAgeFromBirthDate, estimateWorkoutCaloriesLocally } from '../../lib/bmr'
 import type { Exercise, WorkoutSession, SessionSet, ProgramDay } from '../../types'
 
 // ─── HELPERS ──────────────────────────────────────────────────
@@ -835,41 +835,56 @@ export default function WorkoutSession() {
     setSession(s => s ? { ...s, ended_at: endedAt } : s)
     wakeLockRef.current?.release().catch(() => {})
 
-    // Arka planda kalori hesapla — hata olsa da antrenmanı bloklamaz
+    // Kalori hesapla — önce AI, başarısız olursa lokal MET formülü
     try {
       const profile = await profileDb.get()
-      if (profile?.weight_kg && profile?.height_cm && profile?.birth_date && exercises.length > 0) {
+      if (profile?.weight_kg && exercises.length > 0) {
         const completedSetsForCalc = sets.filter(s => s.completed)
-        const exerciseData = exercises.map(ex => ({
-          name: ex.name,
-          type: ex.type ?? 'strength',
-          sets: completedSetsForCalc
-            .filter(s => s.exercise_id === ex.id)
-            .map(s => ({
-              weight_kg: s.weight_kg,
-              reps: s.reps,
-              duration_minutes: s.duration_minutes,
-              distance_km: s.distance_km,
-              held_seconds: s.held_seconds,
-            })),
-        })).filter(ex => ex.sets.length > 0)
-
         const durationMinutes = Math.max(1, Math.round(elapsed / 60))
-        if (exerciseData.length > 0) {
-          const result = await estimateWorkoutCalories({
-            weightKg: profile.weight_kg,
-            heightCm: profile.height_cm,
-            ageYears: getAgeFromBirthDate(profile.birth_date),
-            durationMinutes,
-            exercises: exerciseData,
-          })
-          await supabase
-            .from('workout_sessions')
-            .update({ calories_burned: result.calories_burned })
-            .eq('id', session.id)
+        const exerciseTypes = exercises.map(ex => ex.type ?? 'strength')
+
+        let caloriesBurned: number
+
+        try {
+          const exerciseData = exercises.map(ex => ({
+            name: ex.name,
+            type: ex.type ?? 'strength',
+            sets: completedSetsForCalc
+              .filter(s => s.exercise_id === ex.id)
+              .map(s => ({
+                weight_kg: s.weight_kg,
+                reps: s.reps,
+                duration_minutes: s.duration_minutes,
+                distance_km: s.distance_km,
+                held_seconds: s.held_seconds,
+              })),
+          })).filter(ex => ex.sets.length > 0)
+
+          if (exerciseData.length > 0 && profile.height_cm && profile.birth_date) {
+            const result = await estimateWorkoutCalories({
+              weightKg: profile.weight_kg,
+              heightCm: profile.height_cm,
+              ageYears: getAgeFromBirthDate(profile.birth_date),
+              durationMinutes,
+              exercises: exerciseData,
+            })
+            caloriesBurned = result.calories_burned
+          } else {
+            caloriesBurned = estimateWorkoutCaloriesLocally(profile.weight_kg, durationMinutes, exerciseTypes)
+          }
+        } catch {
+          // Edge Function başarısız — lokal MET formülüne düş
+          caloriesBurned = estimateWorkoutCaloriesLocally(profile.weight_kg, durationMinutes, exerciseTypes)
         }
+
+        await supabase
+          .from('workout_sessions')
+          .update({ calories_burned: caloriesBurned })
+          .eq('id', session.id)
       }
-    } catch { /* kalori hesabı opsiyonel */ }
+    } catch (e) {
+      console.error('Antrenman kalori hesabı başarısız:', e)
+    }
 
     qc.invalidateQueries({ queryKey: QK.workoutHistory })
     qc.invalidateQueries({ queryKey: QK.dashboard })

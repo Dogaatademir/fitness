@@ -26,11 +26,11 @@ const C = {
 }
 
 const ACTIVITY_OPTIONS: { value: ActivityLevel; label: string; hint: string }[] = [
-  { value: 'sedentary',         label: 'Hareketsiz',       hint: 'Çoğunlukla oturarak çalışıyor, yürüyüş çok az' },
-  { value: 'lightly_active',    label: 'Az Hareketli',     hint: 'Günde birkaç bin adım, hafif tempolu bir yaşam' },
-  { value: 'moderately_active', label: 'Orta Hareketli',   hint: 'Gün içinde sık sık ayakta, aktif bir iş veya yaşam' },
-  { value: 'very_active',       label: 'Çok Hareketli',    hint: 'Fiziksel iş yapıyor ya da gün boyunca yoğun hareket ediyor' },
-  { value: 'extra_active',      label: 'Aşırı Hareketli',  hint: 'Çok ağır fiziksel iş veya neredeyse hiç oturmayan bir yaşam' },
+  { value: 'sedentary',         label: 'Hareketsiz',       hint: 'Masa başı iş, günde ~2000-4000 adım. Antrenman ve spor hariç.' },
+  { value: 'lightly_active',    label: 'Az Hareketli',     hint: 'Günde ~4000-7000 adım, hafif tempolu günlük yaşam. Antrenman ve spor hariç.' },
+  { value: 'moderately_active', label: 'Orta Hareketli',   hint: 'Günde ~7000-10000 adım, sık sık ayakta. Antrenman ve spor hariç.' },
+  { value: 'very_active',       label: 'Çok Hareketli',    hint: 'Fiziksel iş, günde ~10000+ adım. Antrenman ve spor hariç.' },
+  { value: 'extra_active',      label: 'Aşırı Hareketli',  hint: 'Çok ağır fiziksel iş, neredeyse sürekli hareket halinde. Antrenman ve spor hariç.' },
 ]
 
 type FormState = {
@@ -346,18 +346,18 @@ export default function Profile() {
             style={{ background: C.surface, border: `1px solid ${C.border}` }}>
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-widest mb-1" style={{ color: C.textLow }}>
-                Bazal Metabolizma
+                Günlük Harcama Tahmini
               </p>
               <p className="text-[13px]" style={{ color: C.textMid }}>
-                Günlük toplam harcama (aktivite dahil)
+                Antrenman ve spor aktiviteleri hariç
               </p>
             </div>
             <div className="text-right flex-shrink-0 ml-4">
               <p className="text-[22px] font-black tabular-nums leading-none" style={{ color: C.text }}>
-                {bmrResult.bmr}
+                {bmrResult.tdee}
               </p>
               <p className="text-[11px] mt-0.5" style={{ color: C.textLow }}>
-                TDEE: {bmrResult.tdee} kcal
+                BMR: {bmrResult.bmr} kcal
               </p>
             </div>
           </div>

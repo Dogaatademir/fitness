@@ -122,6 +122,7 @@ interface DashData {
   waterGoal: number
   bmr: number | null
   tdee: number | null
+  workoutCalories: number
 }
 
 const WATER_STEP = 250
@@ -162,7 +163,7 @@ async function fetchDashboard(): Promise<DashData> {
     }),
     supabase
       .from('workout_sessions')
-      .select('id, date, started_at, ended_at, program_day_id')
+      .select('id, date, started_at, ended_at, program_day_id, calories_burned')
       .eq('user_id', user.user.id)
       .not('ended_at', 'is', null)
       .gte('date', localDateStr(streakSince))
@@ -179,7 +180,7 @@ async function fetchDashboard(): Promise<DashData> {
   const weekActivityDates = new Set((weekActivityResult.data ?? []).map((r: { date: string }) => r.date))
 
   const r = (typeof rpc === 'string' ? JSON.parse(rpc) : rpc) as Record<string, unknown>
-  const profile       = r.profile           as Record<string, number> | null
+  const profile       = r.profile           as Record<string, unknown> | null
   const activeProgram = r.active_program     as Program | null
   const allSessions   = (r.all_sessions      as unknown[]) ?? []
   const weeklySets    = (r.weekly_sets       as Record<string, unknown>[]) ?? []
@@ -280,19 +281,30 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
   const weekDays = weekDayDates.map(d => completedSessionDates.has(d))
   const weekActivityDays = weekDayDates.map(d => weekActivityDates.has(d))
 
-  const calorieGoal = todayDay && profile?.training_calorie_goal
-    ? profile.training_calorie_goal
-    : (profile?.daily_calorie_goal ?? 1600)
+  const calorieGoal = todayDay && (profile?.training_calorie_goal as number | undefined)
+    ? profile!.training_calorie_goal as number
+    : ((profile?.daily_calorie_goal as number | undefined) ?? 1600)
+
+  // Bugünkü tamamlanmış antrenmanların kalori toplamı
+  const workoutCalories = recentSessions
+    .filter(s => s.date === todayStr)
+    .reduce((sum, s) => sum + ((s as Record<string, unknown>).calories_burned as number || 0), 0)
 
   let bmr: number | null = null
   let tdee: number | null = null
-  if (profile?.weight_kg && profile?.height_cm && profile?.birth_date && profile?.activity_level) {
+  const profileWeight = profile?.weight_kg ? parseFloat(String(profile.weight_kg)) : undefined
+  const profileHeight = profile?.height_cm ? parseFloat(String(profile.height_cm)) : undefined
+  const profileBirthDate = profile?.birth_date ? String(profile.birth_date) : undefined
+  const profileActivity = profile?.activity_level as ActivityLevel | undefined
+  const profileGender = (profile?.gender as Gender | undefined) ?? 'male'
+
+  if (profileWeight && profileHeight && profileBirthDate && profileActivity) {
     const result = calculateBMR(
-      profile.weight_kg as number,
-      profile.height_cm as number,
-      String(profile.birth_date),
-      profile.activity_level as unknown as ActivityLevel,
-      (profile.gender as unknown as Gender) ?? 'male',
+      profileWeight,
+      profileHeight,
+      profileBirthDate,
+      profileActivity,
+      profileGender,
     )
     bmr = result.bmr
     tdee = result.tdee
@@ -316,17 +328,18 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
     calorieConsumed: foodSummary?.total_calories ?? 0,
     calorieGoal,
     protein:     foodSummary?.total_protein ?? 0,
-    proteinGoal: profile?.daily_protein_goal ?? 160,
+    proteinGoal: (profile?.daily_protein_goal as number | undefined) ?? 160,
     carb:        foodSummary?.total_carb ?? 0,
-    carbGoal:    profile?.daily_carb_goal ?? 135,
+    carbGoal:    (profile?.daily_carb_goal as number | undefined) ?? 135,
     fat:         foodSummary?.total_fat ?? 0,
-    fatGoal:     profile?.daily_fat_goal ?? 47,
+    fatGoal:     (profile?.daily_fat_goal as number | undefined) ?? 47,
     latestBody: bodyHistory[0] ?? null,
     prevBody:   bodyHistory[1] ?? null,
     hasProfile: !!profile,
-    waterGoal:  profile?.daily_water_goal ?? WATER_GOAL_DEFAULT,
+    waterGoal:  (profile?.daily_water_goal as number | undefined) ?? WATER_GOAL_DEFAULT,
     bmr,
     tdee,
+    workoutCalories,
   }
 }
 
@@ -945,11 +958,12 @@ export default function Dashboard() {
 
         {/* ── Kalori Dengesi ── */}
         {data.tdee && (() => {
-          const totalBurned = data.tdee + activityCalories
+          // TDEE = günlük yaşam harcaması (antrenman/spor hariç)
+          // Üstüne antrenman + sporsal aktivite eklenir
+          const totalBurned = data.tdee + activityCalories + data.workoutCalories
           const consumed = Math.round(data.calorieConsumed)
           const net = consumed - totalBurned
           const isDeficit = net < 0
-          // Bar: yenilen / yakılan oranı — %100 = denge noktası
           const balancePct = Math.min((consumed / Math.max(totalBurned, 1)) * 100, 100)
           const barColor = isDeficit ? C.successText : '#b91c1c'
 
@@ -997,21 +1011,22 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                {/* 3 kolon: Yakılan / Yenen / Aktivite */}
+                {/* 4 kolon: BMR / Yenen / Antrenman / Aktivite */}
                 <div
-                  className="grid grid-cols-3 gap-2 mt-4 pt-4"
+                  className="grid grid-cols-4 gap-2 mt-4 pt-4"
                   style={{ borderTop: `1px solid ${C.borderSub}` }}
                 >
                   {[
-                    { label: 'TDEE', value: data.tdee, color: C.text },
+                    { label: 'Günlük', value: data.tdee, color: C.text },
                     { label: 'Yenen', value: consumed, color: consumed > 0 ? C.text : C.textLow },
+                    { label: 'Antrenman', value: data.workoutCalories, color: data.workoutCalories > 0 ? C.successText : C.textLow },
                     { label: 'Aktivite', value: activityCalories, color: activityCalories > 0 ? C.successText : C.textLow },
                   ].map(({ label, value, color }) => (
                     <div key={label} className="text-center">
-                      <p className="text-[17px] font-black tabular-nums leading-none" style={{ color }}>
+                      <p className="text-[15px] font-black tabular-nums leading-none" style={{ color }}>
                         {value}
                       </p>
-                      <p className="text-[10px] font-semibold mt-1 uppercase tracking-wide" style={{ color: C.textLow }}>
+                      <p className="text-[9px] font-semibold mt-1 uppercase tracking-wide" style={{ color: C.textLow }}>
                         {label}
                       </p>
                     </div>
