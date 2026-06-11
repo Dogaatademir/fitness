@@ -16,7 +16,8 @@ import NutritionLog from './pages/nutrition/NutritionLog'
 import NutritionHistory from './pages/nutrition/NutritionHistory'
 import Body from './pages/body/Body'
 import BodyNew from './pages/body/BodyNew'
-import Settings from './pages/Settings'
+import Profile from './pages/Profile'
+import Activity from './pages/Activity'
 
 function AppRoutes() {
   const auth = useAuth()
@@ -60,7 +61,8 @@ function AppRoutes() {
         <Route path="/body" element={<Body />} />
         <Route path="/body/new" element={<BodyNew />} />
 
-        <Route path="/settings" element={<Settings />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/activity" element={<Activity />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

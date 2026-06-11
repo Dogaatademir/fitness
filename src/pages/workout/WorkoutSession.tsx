@@ -5,10 +5,12 @@ import {
   Check, X, Plus, ChevronDown, ChevronUp,
   Clock, Trophy, Minus,
 } from 'lucide-react'
-import { sessionDb, setDb, prDb } from '../../lib/db'
+import { sessionDb, setDb, prDb, profileDb } from '../../lib/db'
 import { supabase, getUserId } from '../../lib/supabase'
 import { today } from '../../lib/storage'
 import { QK } from '../../lib/queryClient'
+import { estimateWorkoutCalories } from '../../lib/api'
+import { getAgeFromBirthDate } from '../../lib/bmr'
 import type { Exercise, WorkoutSession, SessionSet, ProgramDay } from '../../types'
 
 // ─── HELPERS ──────────────────────────────────────────────────
@@ -364,6 +366,7 @@ function ExerciseCard({
   exercise, sets, allSets, onAddSet, onSetChange, onSetComplete, onSetDelete, newPRs,
 }: ExerciseCardProps) {
   const [collapsed, setCollapsed] = useState(false)
+  const [imageModal, setImageModal] = useState(false)
   const prevSets = allSets
     .filter(s => s.exercise_id === exercise.id && !sets.find(cs => cs.id === s.id))
 
@@ -371,12 +374,21 @@ function ExerciseCard({
   const isPR = newPRs.has(exercise.name)
 
   return (
+    <>
     <div className="rounded-2xl bg-white border border-stone-100 shadow-sm overflow-hidden">
       <button
         onClick={() => setCollapsed(c => !c)}
         className="w-full flex items-center justify-between p-5 text-left"
       >
         <div className="flex items-center gap-3">
+          {exercise.image_url && (
+            <img
+              src={exercise.image_url}
+              alt={exercise.name}
+              className="w-12 h-12 rounded-xl object-cover flex-shrink-0 active:opacity-80 transition-opacity"
+              onClick={e => { e.stopPropagation(); setImageModal(true) }}
+            />
+          )}
           <div>
             <div className="flex items-center gap-2">
               <p className="text-base font-bold text-stone-900">{exercise.name}</p>
@@ -443,6 +455,26 @@ function ExerciseCard({
         </div>
       )}
     </div>
+
+    {/* Görsel modal */}
+    {imageModal && exercise.image_url && (
+      <div
+        className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6"
+        style={{ background: 'rgba(0,0,0,0.85)' }}
+        onClick={() => setImageModal(false)}
+      >
+        <p className="text-white font-bold text-[18px] mb-4 text-center">{exercise.name}</p>
+        <img
+          src={exercise.image_url}
+          alt={exercise.name}
+          className="w-full max-w-sm rounded-2xl object-contain"
+          style={{ maxHeight: '60vh' }}
+          onClick={e => e.stopPropagation()}
+        />
+        <p className="text-stone-500 text-xs mt-4">Kapatmak için dokun</p>
+      </div>
+    )}
+    </>
   )
 }
 
@@ -465,6 +497,7 @@ export default function WorkoutSession() {
   const [showFinish, setShowFinish] = useState(false)
   const [showCancel, setShowCancel] = useState(false)
   const [showPause, setShowPause] = useState(false)
+  const [showBackGuard, setShowBackGuard] = useState(false)
   const [deleteSetId, setDeleteSetId] = useState<string | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const timerBaseRef = useRef<number>(0) // Date.now() - bu değer = elapsed ms
@@ -480,6 +513,36 @@ export default function WorkoutSession() {
     }
     return () => { wakeLockRef.current?.release().catch(() => {}) }
   }, [])
+
+  // Back navigation guard — session açıkken geri tuşuna basılırsa duraklat modalını göster
+  useEffect(() => {
+    function handlePopState(e: PopStateEvent) {
+      const isActive = !!(session && !session.ended_at)
+      if (isActive) {
+        e.preventDefault()
+        // History entry'yi geri ekle (tarayıcı zaten geri gitti, ileriye ekliyoruz)
+        window.history.pushState(null, '', window.location.href)
+        setShowBackGuard(true)
+      }
+    }
+
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      const isActive = !!(session && !session.ended_at)
+      if (isActive) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+
+    window.history.pushState(null, '', window.location.href)
+    window.addEventListener('popstate', handlePopState)
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [session])
 
   // İlk yükleme — tek RPC çağrısı
   useEffect(() => {
@@ -655,7 +718,9 @@ export default function WorkoutSession() {
     let valid = true
     setSets(prev => {
       const set = prev.find(s => s.id === id)
-      if (set && !set.completed) {
+      if (!set) return prev
+
+      if (!set.completed) {
         const exercise = exercises.find(e => e.id === set.exercise_id)
         const type = exercise?.type ?? 'strength'
         if (type === 'strength' && (!(set.weight_kg) || !(set.reps))) { valid = false; return prev }
@@ -664,16 +729,22 @@ export default function WorkoutSession() {
         if (type === 'cardio' && !(set.duration_minutes) && !(set.distance_km)) { valid = false; return prev }
       }
 
-      const updated = prev.map(s => {
-        if (s.id !== id) return s
-        const newCompleted = !s.completed
-        setDb.update(id, { completed: newCompleted })
-        return { ...s, completed: newCompleted }
+      const newCompleted = !set.completed
+
+      // Tüm güncel değerleri completed ile birlikte tek seferde yaz — race condition önlenir
+      setDb.update(id, {
+        completed: newCompleted,
+        weight_kg: set.weight_kg,
+        reps: set.reps,
+        duration_minutes: set.duration_minutes,
+        distance_km: set.distance_km,
+        held_seconds: set.held_seconds,
       })
 
-      const completedSet = updated.find(s => s.id === id)
-      if (completedSet?.completed) {
-        const exercise = exercises.find(e => e.id === completedSet.exercise_id)
+      const updated = prev.map(s => s.id === id ? { ...s, completed: newCompleted } : s)
+
+      if (newCompleted) {
+        const exercise = exercises.find(e => e.id === set.exercise_id)
         if (exercise) {
           const exSets = updated.filter(s => s.exercise_id === exercise.id && s.completed)
           const maxWeight = Math.max(...exSets.map(s => s.weight_kg ?? 0))
@@ -761,9 +832,45 @@ export default function WorkoutSession() {
     const endedAt = new Date().toISOString()
     if (notesDebounceRef.current) clearTimeout(notesDebounceRef.current)
     await sessionDb.update(session.id, { ended_at: endedAt, notes: notes || undefined })
-    // ended_at set edince timer useEffect zaten duracak, elapsed sabit kalır
     setSession(s => s ? { ...s, ended_at: endedAt } : s)
     wakeLockRef.current?.release().catch(() => {})
+
+    // Arka planda kalori hesapla — hata olsa da antrenmanı bloklamaz
+    try {
+      const profile = await profileDb.get()
+      if (profile?.weight_kg && profile?.height_cm && profile?.birth_date && exercises.length > 0) {
+        const completedSetsForCalc = sets.filter(s => s.completed)
+        const exerciseData = exercises.map(ex => ({
+          name: ex.name,
+          type: ex.type ?? 'strength',
+          sets: completedSetsForCalc
+            .filter(s => s.exercise_id === ex.id)
+            .map(s => ({
+              weight_kg: s.weight_kg,
+              reps: s.reps,
+              duration_minutes: s.duration_minutes,
+              distance_km: s.distance_km,
+              held_seconds: s.held_seconds,
+            })),
+        })).filter(ex => ex.sets.length > 0)
+
+        const durationMinutes = Math.max(1, Math.round(elapsed / 60))
+        if (exerciseData.length > 0) {
+          const result = await estimateWorkoutCalories({
+            weightKg: profile.weight_kg,
+            heightCm: profile.height_cm,
+            ageYears: getAgeFromBirthDate(profile.birth_date),
+            durationMinutes,
+            exercises: exerciseData,
+          })
+          await supabase
+            .from('workout_sessions')
+            .update({ calories_burned: result.calories_burned })
+            .eq('id', session.id)
+        }
+      }
+    } catch { /* kalori hesabı opsiyonel */ }
+
     qc.invalidateQueries({ queryKey: QK.workoutHistory })
     qc.invalidateQueries({ queryKey: QK.dashboard })
     qc.invalidateQueries({ queryKey: ['workout-page'] })
@@ -954,6 +1061,40 @@ export default function WorkoutSession() {
           </div>
         )}
       </div>
+
+      {/* Back navigation guard modalı */}
+      {showBackGuard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.25)' }}>
+          <div className="w-full max-w-sm rounded-3xl p-6"
+            style={{ background: SC.surface, border: `1px solid ${SC.border}` }}>
+            <p className="text-[17px] font-extrabold mb-1" style={{ color: SC.text }}>Antrenman Devam Ediyor</p>
+            <p className="text-[13px] mb-5 leading-relaxed" style={{ color: SC.textMid }}>
+              Antrenmanı durdurmak istiyor musun? Duraklat seçersen kaldığın yerden devam edebilirsin.
+            </p>
+            <div className="space-y-2">
+              <button
+                onClick={() => { setShowBackGuard(false); pauseSession() }}
+                className="w-full py-3.5 rounded-2xl text-[13px] font-bold active:scale-95 transition-transform"
+                style={{ background: SC.text, color: SC.bg }}>
+                Duraklat ve Çık
+              </button>
+              <button
+                onClick={() => { setShowBackGuard(false); cancelSession() }}
+                className="w-full py-3.5 rounded-2xl text-[13px] font-semibold active:scale-95 transition-transform"
+                style={{ background: SC.dangerBg, border: '1px solid rgba(185,28,28,0.2)', color: SC.danger }}>
+                İptal Et (Kaydetme)
+              </button>
+              <button
+                onClick={() => setShowBackGuard(false)}
+                className="w-full py-3.5 rounded-2xl text-[13px] font-semibold active:scale-95 transition-transform"
+                style={{ background: SC.surfaceH, border: `1px solid ${SC.border}`, color: SC.textMid }}>
+                Devam Et
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* İptal modalı */}
       {showCancel && (

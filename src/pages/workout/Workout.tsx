@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { History, ChevronRight, Dumbbell, BarChart2, Play, Check } from 'lucide-react'
+import PageSpinner from '../../components/PageSpinner'
 import { supabase, getUserId } from '../../lib/supabase'
 import { today } from '../../lib/storage'
 import type { Program, ProgramDay, Exercise, WorkoutSession } from '../../types'
@@ -243,11 +244,13 @@ export default function Workout() {
   const navigate = useNavigate()
   const [confirmDay, setConfirmDay] = useState<DayWithExercises | null>(null)
 
-  const { data: wdata } = useQuery({
+  const { data: wdata, isLoading } = useQuery({
     queryKey: ['workout-page'],
     queryFn: fetchWorkoutPage,
     staleTime: 0,
   })
+
+  if (isLoading) return <PageSpinner />
 
   const { program, days, sessions, setMeta, nextOrder, openSession } =
     wdata ?? { program: null, days: [], sessions: [], setMeta: {}, nextOrder: 0, openSession: null }

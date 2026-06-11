@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, Trash2, Edit2, X, Dumbbell, Activity, Timer, Check } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { Plus, Trash2, Edit2, X, Dumbbell, Activity, Timer, Check, ImagePlus } from 'lucide-react'
 import { programDb, programDayDb, exerciseDb } from '../../lib/db'
 import { supabase, getUserId } from '../../lib/supabase'
+import { QK } from '../../lib/queryClient'
 import type { Program, ProgramDay, Exercise } from '../../types'
 
 const C = {
@@ -22,7 +24,7 @@ const C = {
   dangerBorder:'rgba(185,28,28,0.2)',
 }
 
-const MUSCLE_GROUPS = ['Göğüs', 'Sırt', 'Omuz', 'Biceps', 'Triceps', 'Karın', 'Bacak', 'Arka Bacak', 'Kardiyo', 'Diğer']
+const MUSCLE_GROUPS = ['Göğüs', 'Sırt', 'Omuz', 'Biceps', 'Triceps', 'Karın', 'Bacak', 'Arka Bacak', 'Glute', 'Kardiyo', 'Diğer']
 type ExType = 'strength' | 'cardio' | 'timed' | 'bodyweight'
 type ExPhase = 'warmup' | 'main' | 'cooldown'
 
@@ -108,6 +110,7 @@ const defaultNew = () => ({
 export default function ProgramDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const qc = useQueryClient()
 
   const [program, setProgram] = useState<Program | null>(null)
   const [days, setDays] = useState<ProgramDay[]>([])
@@ -116,6 +119,38 @@ export default function ProgramDetail() {
   const [editingEx, setEditingEx] = useState<Exercise | null>(null)
   const [dayNameInput, setDayNameInput] = useState('')
   const [newEx, setNewEx] = useState(defaultNew())
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function handleImageUpload(file: File) {
+    if (!editingEx) return
+    setUploading(true)
+    try {
+      const ext = file.name.split('.').pop()
+      const path = `${editingEx.id}.${ext}`
+      const { error } = await supabase.storage
+        .from('exercise-images')
+        .upload(path, file, { upsert: true, contentType: file.type })
+      if (error) throw error
+      const { data: { publicUrl } } = supabase.storage
+        .from('exercise-images')
+        .getPublicUrl(path)
+      await exerciseDb.update(editingEx.id, { image_url: publicUrl })
+      setEditingEx(v => v ? { ...v, image_url: publicUrl } : null)
+      load()
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function handleImageRemove() {
+    if (!editingEx?.image_url) return
+    const path = editingEx.image_url.split('/').pop() ?? ''
+    await supabase.storage.from('exercise-images').remove([path])
+    await exerciseDb.update(editingEx.id, { image_url: null as unknown as undefined })
+    setEditingEx(v => v ? { ...v, image_url: undefined } : null)
+    load()
+  }
 
   useEffect(() => { if (id) load() }, [id])
 
@@ -196,6 +231,8 @@ export default function ProgramDetail() {
       await programDayDb.delete(day.id)
     }
     await programDb.delete(program.id)
+    qc.invalidateQueries({ queryKey: QK.programs })
+    qc.invalidateQueries({ queryKey: QK.dashboard })
     navigate('/programs')
   }
 
@@ -589,6 +626,42 @@ export default function ProgramDetail() {
                 </Field>
               </div>
             )}
+            {/* Görsel */}
+            <div>
+              <label className="text-[11px] font-semibold uppercase tracking-widest block mb-1.5" style={{ color: C.textLow }}>
+                Görsel
+              </label>
+              {editingEx.image_url ? (
+                <div className="relative rounded-2xl overflow-hidden" style={{ aspectRatio: '16/9' }}>
+                  <img src={editingEx.image_url} alt={editingEx.name} className="w-full h-full object-cover" />
+                  <button
+                    onClick={handleImageRemove}
+                    className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center"
+                    style={{ background: 'rgba(0,0,0,0.5)' }}
+                  >
+                    <X size={13} color="white" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="w-full py-4 rounded-2xl flex items-center justify-center gap-2 text-[13px] font-semibold transition-opacity disabled:opacity-40"
+                  style={{ border: `1.5px dashed ${C.border}`, color: C.textLow, background: C.surfaceHigh }}
+                >
+                  <ImagePlus size={15} />
+                  {uploading ? 'Yükleniyor…' : 'Görsel Ekle'}
+                </button>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleImageUpload(f) }}
+              />
+            </div>
+
             <div className="flex gap-2 pt-1">
               <button
                 onClick={() => setModal({ type: 'deleteExercise', exerciseId: editingEx.id })}

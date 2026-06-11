@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase, clearUserIdCache } from '../lib/supabase'
-import { queryClient } from '../lib/queryClient'
+import { queryClient, initPersistCache } from '../lib/queryClient'
 
 type AuthState =
   | { status: 'loading' }
@@ -10,12 +10,16 @@ type AuthState =
 
 const AuthContext = createContext<AuthState>({ status: 'loading' })
 
-const PERSIST_CACHE_KEY = 'ft-query-cache-v3'
-
 function clearAllCache() {
   clearUserIdCache()
   queryClient.clear()
-  localStorage.removeItem(PERSIST_CACHE_KEY)
+  // Kullanıcıya özel tüm cache key'lerini temizle
+  const keysToRemove: string[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)
+    if (k?.startsWith('ft-query-cache-')) keysToRemove.push(k)
+  }
+  keysToRemove.forEach(k => localStorage.removeItem(k))
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -26,6 +30,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(({ data }) => {
       const user = data.session?.user ?? null
       prevUserIdRef.current = user?.id ?? null
+      if (user) initPersistCache(user.id)
       setState(user ? { status: 'signed-in', user } : { status: 'signed-out' })
     })
 
@@ -36,6 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearAllCache()
       }
       prevUserIdRef.current = user?.id ?? null
+      if (user) initPersistCache(user.id)
       setState(user ? { status: 'signed-in', user } : { status: 'signed-out' })
     })
 

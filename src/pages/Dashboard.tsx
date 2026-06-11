@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import PageSpinner from '../components/PageSpinner'
 import {
-  Plus, Minus, ArrowRight, Dumbbell, Settings,
-  Flame, Scale, Droplets, ChevronRight,
+  Plus, Minus, ArrowRight, Dumbbell, UserCircle,
+  Flame, Scale, Droplets, ChevronRight, ChevronDown, ChevronUp, Zap,
 } from 'lucide-react'
-import { exerciseDb, waterDb } from '../lib/db'
+import { exerciseDb, waterDb, activityLogDb } from '../lib/db'
 import { supabase } from '../lib/supabase'
 import { QK } from '../lib/queryClient'
-import type { Program, ProgramDay, Exercise, BodyMeasurement } from '../types'
+import { calculateBMR } from '../lib/bmr'
+import type { Program, ProgramDay, Exercise, BodyMeasurement, ActivityLevel, Gender } from '../types'
 
 // ─── Renk Sabitleri ──────────────────────────────────────────────────────────
 const C = {
@@ -101,7 +103,8 @@ interface DashData {
   todaySession: TodaySession | null
   weeklySessions: number
   weeklyVolume: number
-  weekDays: boolean[]           // Pzt–Paz, true = antrenman yapıldı
+  weekDays: boolean[]           // Pzt–Paz, true = fitness antrenmanı yapıldı
+  weekActivityDays: boolean[]   // Pzt–Paz, true = aktivite kaydı var
   streak: number
   lastSession: LastSession | null
   lastSessionName: string
@@ -117,24 +120,32 @@ interface DashData {
   prevBody: BodyMeasurement | null
   hasProfile: boolean
   waterGoal: number
+  bmr: number | null
+  tdee: number | null
 }
 
 const WATER_STEP = 250
 const WATER_GOAL_DEFAULT = 3000
 
 function localDateStr(d: Date = new Date()): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
+  const shifted = new Date(d)
+  if (shifted.getHours() < 7) {
+    shifted.setDate(shifted.getDate() - 1)
+  }
+  const y = shifted.getFullYear()
+  const m = String(shifted.getMonth() + 1).padStart(2, '0')
+  const day = String(shifted.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
 
 async function fetchDashboard(): Promise<DashData> {
   const todayStr = localDateStr()
 
-  const startOfWeek = new Date()
-  const dow = startOfWeek.getDay() // 0=Pazar
-  startOfWeek.setDate(startOfWeek.getDate() - (dow === 0 ? 6 : dow - 1))
+  // 07:00 shift'i uygulanmış "bugün" tarihini baz al
+  const todayDate = new Date(todayStr + 'T12:00:00')
+  const dow = todayDate.getDay() // 0=Pazar
+  const startOfWeek = new Date(todayDate)
+  startOfWeek.setDate(todayDate.getDate() - (dow === 0 ? 6 : dow - 1))
   const weekStart = localDateStr(startOfWeek)
 
   const { data: user } = await supabase.auth.getUser()
@@ -143,7 +154,7 @@ async function fetchDashboard(): Promise<DashData> {
   // Streak + son antrenman için RPC'den bağımsız sorgu
   const streakSince = new Date()
   streakSince.setDate(streakSince.getDate() - 90)
-  const [rpcResult, recentSessionsResult] = await Promise.all([
+  const [rpcResult, recentSessionsResult, weekActivityResult] = await Promise.all([
     supabase.rpc('get_dashboard_data', {
       p_user_id: user.user.id,
       p_today: todayStr,
@@ -156,10 +167,16 @@ async function fetchDashboard(): Promise<DashData> {
       .not('ended_at', 'is', null)
       .gte('date', localDateStr(streakSince))
       .order('date', { ascending: false }),
+    supabase
+      .from('activity_logs')
+      .select('date')
+      .eq('user_id', user.user.id)
+      .gte('date', weekStart),
   ])
   if (rpcResult.error) throw rpcResult.error
   const { data: rpc } = rpcResult
   const recentSessions = recentSessionsResult.data ?? []
+  const weekActivityDates = new Set((weekActivityResult.data ?? []).map((r: { date: string }) => r.date))
 
   const r = (typeof rpc === 'string' ? JSON.parse(rpc) : rpc) as Record<string, unknown>
   const profile       = r.profile           as Record<string, number> | null
@@ -251,18 +268,35 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
 
   const weekSessions = (allSessions as { date: string; ended_at?: string }[]).filter(s => s.date >= weekStart && s.ended_at)
 
-  // weekDays: sadece tamamlanan session'lar yeşil gösterilir
   const weekDayDates = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart + 'T00:00:00')
+    const d = new Date(weekStart + 'T12:00:00')
     d.setDate(d.getDate() + i)
-    return localDateStr(d)
+    const y = d.getFullYear()
+    const mo = String(d.getMonth() + 1).padStart(2, '0')
+    const da = String(d.getDate()).padStart(2, '0')
+    return `${y}-${mo}-${da}`
   })
   const completedSessionDates = new Set(recentSessions.map(s => s.date))
   const weekDays = weekDayDates.map(d => completedSessionDates.has(d))
+  const weekActivityDays = weekDayDates.map(d => weekActivityDates.has(d))
 
   const calorieGoal = todayDay && profile?.training_calorie_goal
     ? profile.training_calorie_goal
     : (profile?.daily_calorie_goal ?? 1600)
+
+  let bmr: number | null = null
+  let tdee: number | null = null
+  if (profile?.weight_kg && profile?.height_cm && profile?.birth_date && profile?.activity_level) {
+    const result = calculateBMR(
+      profile.weight_kg as number,
+      profile.height_cm as number,
+      String(profile.birth_date),
+      profile.activity_level as unknown as ActivityLevel,
+      (profile.gender as unknown as Gender) ?? 'male',
+    )
+    bmr = result.bmr
+    tdee = result.tdee
+  }
 
   return {
     activeProgram,
@@ -272,6 +306,7 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
     weeklySessions: weekSessions.length,
     weeklyVolume: Math.round(weeklyVolume),
     weekDays,
+    weekActivityDays,
     streak,
     lastSession,
     lastSessionName,
@@ -290,6 +325,8 @@ const programDays   = (r.program_days      as ProgramDay[]) ?? []
     prevBody:   bodyHistory[1] ?? null,
     hasProfile: !!profile,
     waterGoal:  profile?.daily_water_goal ?? WATER_GOAL_DEFAULT,
+    bmr,
+    tdee,
   }
 }
 
@@ -345,7 +382,7 @@ export default function Dashboard() {
   const qc = useQueryClient()
   const todayStr = localDateStr()
 
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: QK.dashboard,
     queryFn: fetchDashboard,
     staleTime: 1000 * 60 * 2,
@@ -355,6 +392,12 @@ export default function Dashboard() {
     queryKey: QK.water(todayStr),
     queryFn: () => waterDb.getToday(),
     staleTime: Infinity,
+  })
+
+  const { data: activityCalories = 0 } = useQuery({
+    queryKey: QK.activityCalories(todayStr),
+    queryFn: () => activityLogDb.getDailyCalories(todayStr),
+    staleTime: 1000 * 60 * 5,
   })
 
   const addWaterMutation = useMutation({
@@ -381,6 +424,19 @@ export default function Dashboard() {
   })
 
   const [showStartConfirm, setShowStartConfirm] = useState(false)
+  const [waterCollapsed, setWaterCollapsed] = useState(
+    () => localStorage.getItem('dash-water-collapsed') === '1'
+  )
+  const [bodyExpanded, setBodyExpanded] = useState(false)
+
+  function toggleWater() {
+    setWaterCollapsed(v => {
+      localStorage.setItem('dash-water-collapsed', v ? '0' : '1')
+      return !v
+    })
+  }
+
+  if (isLoading) return <PageSpinner />
 
   if (!data) return (
     <div className="min-h-screen" style={{ background: C.bg }}>
@@ -459,11 +515,11 @@ export default function Dashboard() {
             </button>
           )}
           <button
-            onClick={() => navigate('/settings')}
+            onClick={() => navigate('/profile')}
             className="w-9 h-9 flex items-center justify-center rounded-xl active:scale-95 transition-transform"
             style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMid }}
           >
-            <Settings size={16} />
+            <UserCircle size={16} />
           </button>
         </div>
       </div>
@@ -480,7 +536,7 @@ export default function Dashboard() {
               </p>
               <div className="flex gap-2.5">
                 <button
-                  onClick={() => navigate('/settings')}
+                  onClick={() => navigate('/profile')}
                   className="flex-1 py-3.5 rounded-xl text-sm font-semibold active:scale-95 transition-transform"
                   style={{ background: C.surfaceHigh, border: `1px solid ${C.border}`, color: C.text }}
                 >
@@ -599,105 +655,170 @@ export default function Dashboard() {
           </Card>
         )}
 
-        {/* ── Son Antrenman / İlk Antrenman CTA ── */}
-        {data.lastSession ? (
-          <Card onClick={() => navigate('/workout/history')}>
-            <div className="p-4 flex items-center gap-3">
-              <div
-                className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0"
-                style={{ background: C.surfaceHigh }}
-              >
-                <Dumbbell size={18} strokeWidth={1.6} style={{ color: C.textMid }} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5" style={{ color: C.textLow }}>
-                  Son Antrenman
-                </p>
-                <p className="text-[16px] font-bold leading-tight truncate" style={{ color: C.text }}>
-                  {data.lastSessionName || relativeDate(data.lastSession.date)}
-                </p>
-                <p className="text-[12px] font-medium mt-0.5" style={{ color: C.textMid }}>
-                  {data.lastSessionName ? `${relativeDate(data.lastSession.date)} · ` : ''}
-                  {formatDuration(data.lastSession.started_at, data.lastSession.ended_at)}
-                  {data.lastSessionSets > 0 && ` · ${data.lastSessionSets} set`}
-                </p>
-              </div>
-              <ChevronRight size={16} style={{ color: C.textLow }} />
+        {/* ── Bu Hafta + Son Antrenman ── */}
+        <Card>
+          <div className="p-5">
+            <div className="flex items-center justify-between mb-3">
+              <SectionLabel>Bu Hafta</SectionLabel>
+              {data.lastSession && (
+                <button
+                  onClick={() => navigate('/workout/history')}
+                  className="flex items-center gap-1 text-[11px] font-semibold active:opacity-60 transition-opacity"
+                  style={{ color: C.textLow }}
+                >
+                  Geçmiş <ChevronRight size={11} />
+                </button>
+              )}
             </div>
-          </Card>
-        ) : !isNewUser && (
-          <Card onClick={() => navigate('/workout')}>
-            <div className="p-4 flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0"
-                style={{ background: C.startBg }}>
-                <Dumbbell size={18} strokeWidth={1.6} style={{ color: C.startText }} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[14px] font-bold" style={{ color: C.text }}>İlk antrenmanını başlat</p>
-                <p className="text-[12px] mt-0.5" style={{ color: C.textMid }}>Programını seç ve harekete geç</p>
-              </div>
-              <ArrowRight size={16} style={{ color: C.textLow }} />
-            </div>
-          </Card>
-        )}
 
-        {/* ── İstatistikler ── */}
-        <Card className="p-5">
-          <SectionLabel>Bu Hafta</SectionLabel>
-          {/* Gün takvimi */}
-          <div className="flex gap-1.5 mt-3 mb-4">
-            {['Pt', 'Sa', 'Ça', 'Pe', 'Cu', 'Ct', 'Pz'].map((label, i) => {
-              const isToday = i === (new Date().getDay() + 6) % 7
-              const done = data.weekDays[i]
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
-                  <div
-                    className="w-full h-7 rounded-lg flex items-center justify-center transition-colors"
-                    style={{
-                      background: done ? C.successBg : C.surfaceHigh,
-                      border: `1px solid ${isToday ? C.successBorder : done ? C.successBorder : C.borderSub}`,
-                    }}
-                  >
-                    {done
-                      ? <div className="w-1.5 h-1.5 rounded-full" style={{ background: C.successText }} />
-                      : isToday
-                        ? <div className="w-1.5 h-1.5 rounded-full" style={{ background: C.startText }} />
-                        : null}
+            {/* Gün takvimi */}
+            <div className="flex gap-1.5 mb-4">
+              {['Pt', 'Sa', 'Ça', 'Pe', 'Cu', 'Ct', 'Pz'].map((label, i) => {
+                const isToday = i === (new Date(todayStr + 'T12:00:00').getDay() + 6) % 7
+                const hasWorkout  = data.weekDays[i]
+                const hasActivity = data.weekActivityDays[i]
+                const hasBoth = hasWorkout && hasActivity
+                const hasEither = hasWorkout || hasActivity
+
+                // renk mantığı
+                const workoutColor = C.successText        // yeşil
+                const activityColor = C.startText         // mavi
+                const bgWorkout  = C.successBg
+                const bgActivity = C.startBg
+                const borderWorkout  = C.successBorder
+                const borderActivity = C.startBorder
+
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
+                    <div
+                      className="w-full h-7 rounded-lg flex items-center justify-center overflow-hidden transition-colors relative"
+                      style={{
+                        background: hasBoth ? 'transparent' : hasWorkout ? bgWorkout : hasActivity ? bgActivity : C.surfaceHigh,
+                        border: `1px solid ${isToday && !hasEither ? C.startBorder : hasWorkout ? borderWorkout : hasActivity ? borderActivity : C.borderSub}`,
+                      }}
+                    >
+                      {/* Yarı-yarı arka plan */}
+                      {hasBoth && (
+                        <>
+                          <div className="absolute inset-y-0 left-0 w-1/2" style={{ background: bgWorkout }} />
+                          <div className="absolute inset-y-0 right-0 w-1/2" style={{ background: bgActivity }} />
+                        </>
+                      )}
+                      {/* İndikatör nokta */}
+                      {hasBoth ? (
+                        <div className="relative flex gap-0.5 z-10">
+                          <div className="w-1.5 h-1.5 rounded-full" style={{ background: workoutColor }} />
+                          <div className="w-1.5 h-1.5 rounded-full" style={{ background: activityColor }} />
+                        </div>
+                      ) : hasWorkout ? (
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ background: workoutColor }} />
+                      ) : hasActivity ? (
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ background: activityColor }} />
+                      ) : isToday ? (
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ background: C.startText }} />
+                      ) : null}
+                    </div>
+                    <span className="text-[9px] font-semibold" style={{ color: isToday ? C.startText : C.textLow }}>
+                      {label}
+                    </span>
                   </div>
-                  <span className="text-[9px] font-semibold" style={{ color: isToday ? C.startText : C.textLow }}>
-                    {label}
-                  </span>
+                )
+              })}
+            </div>
+
+            {/* Sayılar */}
+            {(() => {
+              const weekActivities = data.weekActivityDays.filter(Boolean).length
+              const stats = [
+                {
+                  value: data.weeklySessions,
+                  label: 'antrenman',
+                  color: C.successText,
+                  dotColor: C.successText,
+                  show: true,
+                },
+                {
+                  value: weekActivities,
+                  label: 'aktivite',
+                  color: C.startText,
+                  dotColor: C.startText,
+                  show: true,
+                },
+                {
+                  value: data.streak,
+                  label: data.streak === 0 ? 'seri yok' : 'gün seri',
+                  color: data.streak >= 3 ? C.ongoingText : C.text,
+                  flame: data.streak >= 3,
+                  show: true,
+                },
+              ]
+              return (
+                <div className="grid grid-cols-3 pt-4 mt-1" style={{ borderTop: `1px solid ${C.borderSub}` }}>
+                  {stats.map(({ value, label, color, dotColor, flame }, idx) => (
+                    <div
+                      key={label}
+                      className={`flex flex-col items-center py-1 ${idx < 2 ? 'border-r' : ''}`}
+                      style={{ borderColor: C.borderSub }}
+                    >
+                      <div className="flex items-center gap-1 mb-0.5">
+                        {dotColor && (
+                          <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: dotColor }} />
+                        )}
+                        <span className="text-[22px] font-black tabular-nums leading-none" style={{ color }}>
+                          {value}
+                        </span>
+                        {flame && <Flame size={13} style={{ color: C.ongoingText }} />}
+                      </div>
+                      <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: C.textLow }}>
+                        {label}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               )
-            })}
-          </div>
-          {/* Sayılar */}
-          <div className="flex items-end justify-between pt-3" style={{ borderTop: `1px solid ${C.borderSub}` }}>
-            <div>
-              <p className="text-[32px] font-black leading-none tabular-nums" style={{ color: C.text }}>
-                {data.weeklySessions}
-              </p>
-              <p className="text-[11px] mt-1 font-medium" style={{ color: C.textMid }}>antrenman</p>
-            </div>
-            {data.weeklyVolume > 0 && (
-              <div className="text-right">
-                <p className="text-[32px] font-black leading-none tabular-nums" style={{ color: C.text }}>
-                  {(data.weeklyVolume / 1000).toFixed(1)}
-                </p>
-                <p className="text-[11px] mt-1 font-medium" style={{ color: C.textMid }}>ton hacim</p>
-              </div>
+            })()}
+
+            {/* Son Antrenman — kompakt satır */}
+            {data.lastSession && (
+              <button
+                onClick={() => navigate('/workout/history')}
+                className="w-full flex items-center gap-3 mt-3 pt-3 active:opacity-60 transition-opacity"
+                style={{ borderTop: `1px solid ${C.borderSub}` }}
+              >
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{ background: C.surfaceHigh }}>
+                  <Dumbbell size={13} strokeWidth={1.6} style={{ color: C.textMid }} />
+                </div>
+                <div className="flex-1 min-w-0 text-left">
+                  <p className="text-[13px] font-semibold truncate" style={{ color: C.text }}>
+                    {data.lastSessionName || 'Son Antrenman'}
+                  </p>
+                  <p className="text-[11px]" style={{ color: C.textLow }}>
+                    {relativeDate(data.lastSession.date)}
+                    {' · '}{formatDuration(data.lastSession.started_at, data.lastSession.ended_at)}
+                    {data.lastSessionSets > 0 && ` · ${data.lastSessionSets} set`}
+                  </p>
+                </div>
+                <ChevronRight size={13} style={{ color: C.textLow }} />
+              </button>
             )}
-            <div className="text-right">
-              <div className="flex items-end gap-1 justify-end">
-                <p className="text-[32px] font-black leading-none tabular-nums" style={{ color: C.text }}>
-                  {data.streak}
+
+            {!data.lastSession && !isNewUser && (
+              <button
+                onClick={() => navigate('/workout')}
+                className="w-full flex items-center gap-3 mt-3 pt-3 active:opacity-60 transition-opacity"
+                style={{ borderTop: `1px solid ${C.borderSub}` }}
+              >
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{ background: C.startBg }}>
+                  <Dumbbell size={13} strokeWidth={1.6} style={{ color: C.startText }} />
+                </div>
+                <p className="text-[13px] font-semibold" style={{ color: C.startText }}>
+                  İlk antrenmanını başlat
                 </p>
-                {data.streak >= 3 && <Flame size={16} className="mb-1" style={{ color: C.ongoingText }} />}
-              </div>
-              <p className="text-[11px] mt-1 font-medium" style={{ color: C.textMid }}>
-                {data.streak === 0 ? 'seri yok' : 'gün seri'}
-              </p>
-            </div>
+                <ArrowRight size={13} style={{ color: C.startText, marginLeft: 'auto' }} />
+              </button>
+            )}
           </div>
         </Card>
 
@@ -751,122 +872,242 @@ export default function Dashboard() {
         {/* ── Su Takibi ── */}
         <Card>
           <div className="p-5">
-            <div className="flex items-start justify-between mb-5">
-              <div>
+            {/* Header — her zaman görünür */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
                 <SectionLabel>Su Takibi</SectionLabel>
-                <div className="flex items-baseline gap-2 mt-3">
-                  <span className="text-[32px] font-black leading-none tabular-nums" style={{ color: C.text }}>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-[16px] font-black tabular-nums" style={{ color: C.text }}>
                     {waterGlasses}
                   </span>
-                  <span className="text-sm font-medium" style={{ color: C.textMid }}>
-                    / {waterGoalGlasses} bardak
+                  <span className="text-[12px] font-medium" style={{ color: C.textMid }}>
+                    /{waterGoalGlasses}
                   </span>
+                  <span className="text-[11px]" style={{ color: C.textLow }}> bardak</span>
                 </div>
-                <p className="text-[11px] mt-1 font-medium" style={{ color: C.textLow }}>
-                  {formatWater(water)} / {data.waterGoal / 1000} L
-                </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                {!waterCollapsed && (
+                  <>
+                    <button
+                      onClick={() => removeWaterMutation.mutate()}
+                      disabled={water === 0}
+                      className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-95 disabled:opacity-30 transition-all"
+                      style={{ background: C.surfaceHigh, border: `1px solid ${C.borderSub}`, color: C.textMid }}
+                    >
+                      <Minus size={14} />
+                    </button>
+                    <button
+                      onClick={() => addWaterMutation.mutate()}
+                      className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-95 transition-all"
+                      style={{ background: C.surfaceHigh, border: `1px solid ${C.border}`, color: C.text }}
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </>
+                )}
                 <button
-                  onClick={() => removeWaterMutation.mutate()}
-                  disabled={water === 0}
-                  className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-95 disabled:opacity-30 transition-all"
-                  style={{ background: C.surfaceHigh, border: `1px solid ${C.borderSub}`, color: C.textMid }}
+                  onClick={toggleWater}
+                  className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-95 transition-all"
+                  style={{ color: C.textLow }}
                 >
-                  <Minus size={16} />
-                </button>
-                <button
-                  onClick={() => addWaterMutation.mutate()}
-                  className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-95 transition-all"
-                  style={{ background: C.surfaceHigh, border: `1px solid ${C.border}`, color: C.text }}
-                >
-                  <Plus size={16} />
+                  {waterCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
                 </button>
               </div>
             </div>
 
-            {/* Bardak gösterimi */}
-            <div className="flex gap-1.5">
-              {Array.from({ length: waterGoalGlasses }).map((_, i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                  <Droplets
-                    size={14}
-                    style={{ color: i < waterGlasses ? C.startText : C.borderSub }}
-                    className="transition-colors duration-300"
-                  />
+            {/* Expand edilince bardak gösterimi */}
+            {!waterCollapsed && (
+              <div className="mt-4">
+                <div className="flex items-baseline gap-2 mb-3">
+                  <span className="text-[28px] font-black leading-none tabular-nums" style={{ color: C.text }}>
+                    {formatWater(water)}
+                  </span>
+                  <span className="text-sm font-medium" style={{ color: C.textMid }}>
+                    / {data.waterGoal / 1000} L
+                  </span>
                 </div>
-              ))}
-            </div>
+                <div className="flex gap-1.5">
+                  {Array.from({ length: waterGoalGlasses }).map((_, i) => (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                      <Droplets
+                        size={14}
+                        style={{ color: i < waterGlasses ? C.startText : C.borderSub }}
+                        className="transition-colors duration-300"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </Card>
 
-        {/* ── Vücut Ölçümleri ── */}
-        {data.latestBody && (
-          <Card onClick={() => navigate('/body')}>
-            <div className="p-5">
-              <div className="flex items-center justify-between mb-4">
-                <SectionLabel>Vücut</SectionLabel>
-                <ChevronRight size={14} style={{ color: C.textLow }} />
-              </div>
+        {/* ── Kalori Dengesi ── */}
+        {data.tdee && (() => {
+          const totalBurned = data.tdee + activityCalories
+          const consumed = Math.round(data.calorieConsumed)
+          const net = consumed - totalBurned
+          const isDeficit = net < 0
+          // Bar: yenilen / yakılan oranı — %100 = denge noktası
+          const balancePct = Math.min((consumed / Math.max(totalBurned, 1)) * 100, 100)
+          const barColor = isDeficit ? C.successText : '#b91c1c'
 
-              {/* Ağırlık + trend */}
-              <div className="flex items-end justify-between mb-4">
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-[36px] font-black leading-none tabular-nums" style={{ color: C.text }}>
-                    {data.latestBody.weight_kg}
-                  </span>
-                  <span className="text-sm font-medium" style={{ color: C.textLow }}>kg</span>
+          return (
+            <Card onClick={() => navigate('/activity')}>
+              <div className="p-5">
+
+                {/* Başlık */}
+                <div className="flex items-center justify-between mb-5">
+                  <SectionLabel>Kalori Dengesi</SectionLabel>
+                  <Zap size={13} style={{ color: C.textLow }} />
                 </div>
-                {weightChange !== null && weightChange !== 0 && (
-                  <span className="text-sm font-bold tabular-nums" style={{ color: weightChange < 0 ? C.successText : '#b91c1c' }}>
-                    {weightChange > 0 ? '+' : ''}{weightChange} kg
-                  </span>
-                )}
-              </div>
 
-              {/* Mini sparkline — son 5 ölçüm */}
-              {data.bodyHistory.length >= 2 && (() => {
-                const reversed = [...data.bodyHistory].reverse()
-                const weights = reversed.map(b => b.weight_kg)
-                const min = Math.min(...weights)
-                const max = Math.max(...weights)
-                const range = max - min || 1
-                const W = 280; const H = 36
-                const pts = weights.map((w, i) => {
-                  const x = (i / (weights.length - 1)) * W
-                  const y = H - ((w - min) / range) * H
-                  return `${x},${y}`
-                }).join(' ')
-                return (
-                  <div className="mb-4">
-                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 36 }}>
-                      <polyline points={pts} fill="none"
-                        stroke={C.startText} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                      {weights.map((_, i) => {
-                        const x = (i / (weights.length - 1)) * W
-                        const y = H - ((weights[i] - min) / range) * H
-                        return <circle key={i} cx={x} cy={y} r="3" fill={C.startText} />
-                      })}
-                    </svg>
+                {/* Ana sayı — net fark */}
+                <div className="flex items-end justify-between mb-1">
+                  <div>
+                    <p className="text-[11px] font-semibold mb-1" style={{ color: C.textLow }}>
+                      {consumed > 0
+                        ? (isDeficit ? 'Kalori açığı' : 'Kalori fazlası')
+                        : 'Tahmini yakılan'}
+                    </p>
+                    <p className="text-[36px] font-black tabular-nums leading-none" style={{ color: consumed > 0 ? barColor : C.text }}>
+                      {consumed > 0 ? Math.abs(net) : totalBurned}
+                      <span className="text-[15px] font-semibold ml-1" style={{ color: C.textMid }}>kcal</span>
+                    </p>
                   </div>
-                )
-              })()}
+                  {consumed > 0 && (
+                    <div className="text-right pb-1">
+                      <p className="text-[11px]" style={{ color: C.textLow }}>
+                        {isDeficit ? '🔥 Yağ yakıyorsun' : '⚠️ Hedefin üstünde'}
+                      </p>
+                    </div>
+                  )}
+                </div>
 
-              {/* Ek ölçümler */}
-              {(() => {
-                const b = data.latestBody
-                const p = data.prevBody
-                const fields: { label: string; cur?: number; prev?: number; unit: string }[] = [
-                  { label: 'Bel', cur: b.waist_cm, prev: p?.waist_cm, unit: 'cm' },
-                  { label: 'Göğüs', cur: b.chest_cm, prev: p?.chest_cm, unit: 'cm' },
-                  { label: 'Kol', cur: b.arm_cm, prev: p?.arm_cm, unit: 'cm' },
-                  { label: 'Kalça', cur: b.hip_cm, prev: p?.hip_cm, unit: 'cm' },
-                  { label: 'Yağ', cur: b.body_fat_pct, prev: p?.body_fat_pct, unit: '%' },
-                ].filter(f => f.cur != null)
-                if (fields.length === 0) return null
-                return (
-                  <div className="grid grid-cols-3 gap-2 pt-3" style={{ borderTop: `1px solid ${C.borderSub}` }}>
-                    {fields.map(f => {
+                {/* Balance bar */}
+                {consumed > 0 && (
+                  <div className="mt-3 mb-5">
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.borderSub }}>
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{ width: `${balancePct}%`, backgroundColor: barColor }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 3 kolon: Yakılan / Yenen / Aktivite */}
+                <div
+                  className="grid grid-cols-3 gap-2 mt-4 pt-4"
+                  style={{ borderTop: `1px solid ${C.borderSub}` }}
+                >
+                  {[
+                    { label: 'TDEE', value: data.tdee, color: C.text },
+                    { label: 'Yenen', value: consumed, color: consumed > 0 ? C.text : C.textLow },
+                    { label: 'Aktivite', value: activityCalories, color: activityCalories > 0 ? C.successText : C.textLow },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="text-center">
+                      <p className="text-[17px] font-black tabular-nums leading-none" style={{ color }}>
+                        {value}
+                      </p>
+                      <p className="text-[10px] font-semibold mt-1 uppercase tracking-wide" style={{ color: C.textLow }}>
+                        {label}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+              </div>
+            </Card>
+          )
+        })()}
+
+        {/* ── Vücut Ölçümleri ── */}
+        {data.latestBody && (() => {
+          const b = data.latestBody
+          const p = data.prevBody
+          const extraFields: { label: string; cur?: number; prev?: number; unit: string }[] = [
+            { label: 'Bel', cur: b.waist_cm, prev: p?.waist_cm, unit: 'cm' },
+            { label: 'Göğüs', cur: b.chest_cm, prev: p?.chest_cm, unit: 'cm' },
+            { label: 'Kol', cur: b.arm_cm, prev: p?.arm_cm, unit: 'cm' },
+            { label: 'Kalça', cur: b.hip_cm, prev: p?.hip_cm, unit: 'cm' },
+            { label: 'Yağ', cur: b.body_fat_pct, prev: p?.body_fat_pct, unit: '%' },
+          ].filter(f => f.cur != null)
+          const hasExtra = extraFields.length > 0
+
+          return (
+            <Card>
+              <div className="p-5">
+                {/* Header satırı */}
+                <div className="flex items-center justify-between mb-4">
+                  <SectionLabel>Vücut</SectionLabel>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => navigate('/body')}
+                      className="text-[11px] font-semibold flex items-center gap-0.5 active:opacity-60 transition-opacity"
+                      style={{ color: C.textLow }}
+                    >
+                      Detay <ChevronRight size={11} />
+                    </button>
+                    {hasExtra && (
+                      <button
+                        onClick={() => setBodyExpanded(v => !v)}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-95 transition-all"
+                        style={{ color: C.textLow }}
+                      >
+                        {bodyExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Ağırlık + sparkline */}
+                <div className="flex items-end justify-between mb-3">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[36px] font-black leading-none tabular-nums" style={{ color: C.text }}>
+                      {b.weight_kg}
+                    </span>
+                    <span className="text-sm font-medium" style={{ color: C.textLow }}>kg</span>
+                  </div>
+                  {weightChange !== null && weightChange !== 0 && (
+                    <span className="text-sm font-bold tabular-nums" style={{ color: weightChange < 0 ? C.successText : '#b91c1c' }}>
+                      {weightChange > 0 ? '+' : ''}{weightChange} kg
+                    </span>
+                  )}
+                </div>
+
+                {data.bodyHistory.length >= 2 && (() => {
+                  const reversed = [...data.bodyHistory].reverse()
+                  const weights = reversed.map(bh => bh.weight_kg)
+                  const min = Math.min(...weights)
+                  const max = Math.max(...weights)
+                  const range = max - min || 1
+                  const W = 280; const H = 36
+                  const pts = weights.map((w, i) => {
+                    const x = (i / (weights.length - 1)) * W
+                    const y = H - ((w - min) / range) * H
+                    return `${x},${y}`
+                  }).join(' ')
+                  return (
+                    <div className="mb-1">
+                      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 36 }}>
+                        <polyline points={pts} fill="none"
+                          stroke={C.startText} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                        {weights.map((_, i) => {
+                          const x = (i / (weights.length - 1)) * W
+                          const y = H - ((weights[i] - min) / range) * H
+                          return <circle key={i} cx={x} cy={y} r="3" fill={C.startText} />
+                        })}
+                      </svg>
+                    </div>
+                  )
+                })()}
+
+                {/* Ek ölçümler — expand edilince */}
+                {bodyExpanded && hasExtra && (
+                  <div className="grid grid-cols-3 gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${C.borderSub}` }}>
+                    {extraFields.map(f => {
                       const diff = f.cur != null && f.prev != null ? +(f.cur - f.prev).toFixed(1) : null
                       return (
                         <div key={f.label} className="rounded-xl p-2.5" style={{ background: C.surfaceHigh }}>
@@ -885,11 +1126,11 @@ export default function Dashboard() {
                       )
                     })}
                   </div>
-                )
-              })()}
-            </div>
-          </Card>
-        )}
+                )}
+              </div>
+            </Card>
+          )
+        })()}
 
 
       </div>

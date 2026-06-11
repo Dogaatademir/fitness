@@ -38,6 +38,7 @@ export interface Exercise {
   
   notes?: string
   order_index: number
+  image_url?: string
 }
 
 export interface WorkoutSession {
@@ -127,14 +128,37 @@ export interface WaterLog {
 
 // ─── KULLANICI PROFİLİ ────────────────────────────────────────
 
+export type ActivityLevel =
+  | 'sedentary'
+  | 'lightly_active'
+  | 'moderately_active'
+  | 'very_active'
+  | 'extra_active'
+
+export type Gender = 'male' | 'female'
+
 export interface UserProfile {
   height_cm: number
   weight_kg: number
   birth_date?: string
+  gender?: Gender
+  activity_level?: ActivityLevel
   daily_calorie_goal: number
   daily_protein_goal: number
   daily_carb_goal: number
   daily_fat_goal: number
   training_calorie_goal?: number
   daily_water_goal?: number
+  bmr_kcal?: number
+}
+
+// ─── AKTİVİTE KAYDI ──────────────────────────────────────────
+
+export interface ActivityLog {
+  id: string
+  date: string
+  activity_name: string
+  duration_minutes?: number
+  calories_burned: number
+  notes?: string
 }

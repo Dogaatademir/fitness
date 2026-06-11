@@ -7,7 +7,13 @@ if (!url || !key) {
   throw new Error('VITE_SUPABASE_URL ve VITE_SUPABASE_ANON_KEY .env dosyasında tanımlı olmalı.')
 }
 
-export const supabase = createClient(url, key)
+export const supabase = createClient(url, key, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+})
 
 // Oturum boyunca user ID'yi bir kez çek, sonra cache'den dön
 let _cachedUserId: string | null = null

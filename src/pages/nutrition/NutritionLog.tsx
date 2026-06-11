@@ -52,45 +52,30 @@ function scaleMacros(base: BaseValues, qty: number, unit: string) {
 }
 
 async function estimateWithGroq(foodName: string, unit: string): Promise<BaseValues | null> {
-  const key = import.meta.env.VITE_GROQ_API_KEY
-  if (!key) {
-    console.error('[Groq] VITE_GROQ_API_KEY tanımlı değil')
-    return null
-  }
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
+  const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 
   const unitLabel = unit === 'g' || unit === 'ml' ? `100${unit}` : `1 ${unit}`
-  const prompt = `Türk mutfağı ve uluslararası besinler hakkında beslenme uzmanısın.
-"${foodName}" için ${unitLabel} başına besin değerlerini tahmin et.
-Sadece JSON döndür, başka hiçbir şey yazma:
-{"calories":number,"protein_g":number,"carb_g":number,"fat_g":number}
-Tüm değerler sayı olmalı (ondalık olabilir). Kalori tam sayı olsun.`
 
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  const res = await fetch(`${supabaseUrl}/functions/v1/estimate-nutrition`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key}`,
+      'Authorization': `Bearer ${supabaseKey}`,
     },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1,
-      max_tokens: 100,
-    }),
+    body: JSON.stringify({ foodName, servingSize: unitLabel }),
   })
 
-  if (!res.ok) {
-    console.error('[Groq] API hatası:', res.status, await res.text())
-    return null
-  }
+  if (!res.ok) return null
+
   const data = await res.json()
-  const text = data.choices?.[0]?.message?.content ?? ''
-  const match = text.match(/\{[\s\S]*?\}/)
-  if (!match) return null
-  try {
-    return JSON.parse(match[0]) as BaseValues
-  } catch {
-    return null
+  if (data.error || !data.calories) return null
+
+  return {
+    calories:  data.calories,
+    protein_g: data.protein_g,
+    carb_g:    data.carb_g,
+    fat_g:     data.fat_g,
   }
 }
 

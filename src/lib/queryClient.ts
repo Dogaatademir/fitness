@@ -8,6 +8,9 @@ const NO_PERSIST_KEYS = [
   'workout-history',
   'workout-session',
   'dashboard',
+  'programs',
+  'activity-logs',
+  'activity-calories',
 ]
 
 export const queryClient = new QueryClient({
@@ -21,30 +24,50 @@ export const queryClient = new QueryClient({
   },
 })
 
-const CACHE_VERSION = 'v3'
-
-const persister = createSyncStoragePersister({
-  storage: window.localStorage,
-  key: `ft-query-cache-${CACHE_VERSION}`,
-})
+const CACHE_VERSION = 'v4'
 
 // Eski versiyonlardaki cache key'lerini temizle
-;['ft-query-cache', 'ft-query-cache-v1', 'ft-query-cache-v2'].forEach(k =>
+;['ft-query-cache', 'ft-query-cache-v1', 'ft-query-cache-v2', 'ft-query-cache-v3'].forEach(k =>
   localStorage.removeItem(k)
 )
 
-persistQueryClient({
-  queryClient,
-  persister,
-  maxAge: 1000 * 60 * 60 * 24,
-  dehydrateOptions: {
-    shouldDehydrateQuery: (query) => {
-      const key = query.queryKey[0]
-      if (typeof key === 'string' && NO_PERSIST_KEYS.includes(key)) return false
-      return query.state.status === 'success'
+// Kullanıcıya özel persist cache başlatır — kullanıcı değişince tekrar çağrılır
+let _unsubscribePersist: (() => void) | undefined
+
+export function initPersistCache(userId: string) {
+  // Önceki listener'ı temizle
+  _unsubscribePersist?.()
+
+  const cacheKey = `ft-query-cache-${CACHE_VERSION}-${userId}`
+
+  // Başka kullanıcılara ait eski cache'leri temizle
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)
+    if (k?.startsWith(`ft-query-cache-${CACHE_VERSION}-`) && k !== cacheKey) {
+      localStorage.removeItem(k)
+    }
+  }
+
+  const persister = createSyncStoragePersister({
+    storage: window.localStorage,
+    key: cacheKey,
+  })
+
+  const { unsubscribe } = persistQueryClient({
+    queryClient,
+    persister,
+    maxAge: 1000 * 60 * 60 * 24,
+    dehydrateOptions: {
+      shouldDehydrateQuery: (query) => {
+        const key = query.queryKey[0]
+        if (typeof key === 'string' && NO_PERSIST_KEYS.includes(key)) return false
+        return query.state.status === 'success'
+      },
     },
-  },
-})
+  })
+
+  _unsubscribePersist = unsubscribe
+}
 
 export const QK = {
   dashboard: ['dashboard'] as const,
@@ -57,4 +80,6 @@ export const QK = {
   body: ['body'] as const,
   profile: ['profile'] as const,
   water: (date: string) => ['water', date] as const,
+  activityLogs: (date: string) => ['activity-logs', date] as const,
+  activityCalories: (date: string) => ['activity-calories', date] as const,
 }

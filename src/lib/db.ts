@@ -1,13 +1,21 @@
 import { supabase, getUserId } from './supabase'
+import { calculateBMR } from './bmr'
 import type {
   Program, ProgramDay, Exercise,
   WorkoutSession, SessionSet, PersonalRecord,
-  FoodLog, BodyMeasurement, UserProfile,
+  FoodLog, BodyMeasurement, UserProfile, ActivityLog,
 } from '../types'
 
 
 function today(): string {
-  return new Date().toISOString().split('T')[0]
+  const now = new Date()
+  if (now.getHours() < 7) {
+    now.setDate(now.getDate() - 1)
+  }
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 // ─── PROFİL ───────────────────────────────────────────────────
@@ -24,6 +32,8 @@ export const profileDb = {
       height_cm: data.height_cm,
       weight_kg: data.weight_kg,
       birth_date: data.birth_date ?? undefined,
+      gender: data.gender ?? undefined,
+      activity_level: data.activity_level ?? undefined,
       daily_calorie_goal: data.daily_calorie_goal,
       daily_protein_goal: data.daily_protein_goal,
       daily_carb_goal: data.daily_carb_goal,
@@ -33,7 +43,22 @@ export const profileDb = {
   },
   async save(profile: UserProfile): Promise<void> {
     const userId = await getUserId()
-    await supabase.from('user_profiles').upsert({ id: userId, ...profile, updated_at: new Date().toISOString() })
+    let bmr_kcal = profile.bmr_kcal
+    if (profile.height_cm && profile.weight_kg && profile.birth_date && profile.activity_level) {
+      bmr_kcal = calculateBMR(
+        profile.weight_kg,
+        profile.height_cm,
+        profile.birth_date,
+        profile.activity_level,
+        profile.gender,
+      ).bmr
+    }
+    await supabase.from('user_profiles').upsert({
+      id: userId,
+      ...profile,
+      bmr_kcal,
+      updated_at: new Date().toISOString(),
+    })
   },
 }
 
@@ -175,6 +200,7 @@ function mapExercise(r: Record<string, unknown>): Exercise {
     target_duration_seconds: r.target_duration_seconds as number | undefined,
     notes: r.notes as string | undefined,
     order_index: r.order_index as number,
+    image_url: r.image_url as string | undefined,
   }
 }
 
@@ -455,6 +481,46 @@ export const bodyDb = {
   async delete(id: string): Promise<void> {
     await supabase.from('body_measurements').delete().eq('id', id)
   },
+}
+
+// ─── AKTİVİTE KAYDI ──────────────────────────────────────────
+export const activityLogDb = {
+  async getByDate(date: string): Promise<ActivityLog[]> {
+    const userId = await getUserId()
+    const { data } = await supabase
+      .from('activity_logs').select('*')
+      .eq('user_id', userId).eq('date', date)
+      .order('created_at', { ascending: true })
+    return (data ?? []).map(mapActivity)
+  },
+  async getToday(): Promise<ActivityLog[]> {
+    return this.getByDate(today())
+  },
+  async create(input: Omit<ActivityLog, 'id'>): Promise<ActivityLog> {
+    const userId = await getUserId()
+    const { data, error } = await supabase
+      .from('activity_logs').insert({ ...input, user_id: userId }).select().single()
+    if (error || !data) throw error ?? new Error('Aktivite kaydı oluşturulamadı')
+    return mapActivity(data)
+  },
+  async delete(id: string): Promise<void> {
+    await supabase.from('activity_logs').delete().eq('id', id)
+  },
+  async getDailyCalories(date: string): Promise<number> {
+    const logs = await this.getByDate(date)
+    return logs.reduce((s, a) => s + a.calories_burned, 0)
+  },
+}
+
+function mapActivity(r: Record<string, unknown>): ActivityLog {
+  return {
+    id: r.id as string,
+    date: r.date as string,
+    activity_name: r.activity_name as string,
+    duration_minutes: r.duration_minutes as number | undefined,
+    calories_burned: r.calories_burned as number,
+    notes: r.notes as string | undefined,
+  }
 }
 
 // ─── SU TAKİBİ ────────────────────────────────────────────────

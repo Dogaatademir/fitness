@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import PageSpinner from '../../components/PageSpinner'
 import { useState } from 'react'
 import { Plus, Check, Dumbbell, X, ChevronRight } from 'lucide-react'
 import { programDb } from '../../lib/db'
@@ -34,7 +35,8 @@ async function fetchPrograms(): Promise<ProgramRow[]> {
   const { data } = await supabase.rpc('get_programs_page', { p_user_id: userId })
   if (!data) return []
   const parsed = typeof data === 'string' ? JSON.parse(data) : data
-  return Array.isArray(parsed) ? parsed : []
+  const arr: ProgramRow[] = Array.isArray(parsed) ? parsed : []
+  return arr.map(p => ({ ...p, days: p.days ?? [] }))
 }
 
 function DayDots({ days }: { days: DayMeta[] }) {
@@ -64,12 +66,14 @@ export default function Programs() {
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
 
-  const { data: rawRows } = useQuery({
+  const { data: rawRows, isLoading } = useQuery({
     queryKey: QK.programs,
     queryFn: fetchPrograms,
-    staleTime: 1000 * 60 * 5,
+    staleTime: 0,
   })
-  const rows: ProgramRow[] = Array.isArray(rawRows) ? rawRows : []
+  const rows: ProgramRow[] = (Array.isArray(rawRows) ? rawRows : []).map(p => ({ ...p, days: p.days ?? [] }))
+
+  if (isLoading) return <PageSpinner />
 
   async function handleCreate() {
     if (!newName.trim()) return

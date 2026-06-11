@@ -25,6 +25,14 @@ export function generateId(): string {
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`
 }
 
+// Gün, saat 07:00'da değişir — gece geç saate kadar uyanık kullanıcılar için
 export function today(): string {
-  return new Date().toISOString().split('T')[0] // "2026-05-29"
+  const now = new Date()
+  if (now.getHours() < 7) {
+    now.setDate(now.getDate() - 1)
+  }
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }

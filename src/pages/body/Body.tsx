@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
+import PageSpinner from '../../components/PageSpinner'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   CartesianGrid, Tooltip,
@@ -55,11 +56,13 @@ export default function Body() {
   const [range, setRange]   = useState<Range>('3m')
   const [deleteId, setDeleteId] = useState<string | null>(null)
 
-  const { data: measurements = [] } = useQuery({
+  const { data: measurements = [], isLoading } = useQuery({
     queryKey: QK.body,
     queryFn: () => bodyDb.getAll(),
     staleTime: 1000 * 60 * 5,
   })
+
+  if (isLoading) return <PageSpinner />
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => bodyDb.delete(id),

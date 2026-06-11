@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, History, X } from 'lucide-react'
+import PageSpinner from '../../components/PageSpinner'
 import { foodLogDb, profileDb } from '../../lib/db'
 import { today } from '../../lib/storage'
 import { QK } from '../../lib/queryClient'
@@ -66,6 +67,8 @@ export default function Nutrition() {
     queryFn: () => profileDb.get(),
     staleTime: Infinity,
   })
+
+  if (profileLoading) return <PageSpinner />
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => foodLogDb.delete(id),
