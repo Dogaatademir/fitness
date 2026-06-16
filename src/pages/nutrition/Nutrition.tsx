@@ -68,8 +68,6 @@ export default function Nutrition() {
     staleTime: Infinity,
   })
 
-  if (profileLoading) return <PageSpinner />
-
   const deleteMutation = useMutation({
     mutationFn: (id: string) => foodLogDb.delete(id),
     onMutate: (id) => {
@@ -82,6 +80,8 @@ export default function Nutrition() {
       qc.invalidateQueries({ queryKey: QK.dashboard })
     },
   })
+
+  if (profileLoading) return <PageSpinner />
 
   const calorieGoal  = profile?.daily_calorie_goal  ?? 1600
   const proteinGoal  = profile?.daily_protein_goal  ?? 160

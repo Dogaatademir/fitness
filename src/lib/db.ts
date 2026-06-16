@@ -4,6 +4,7 @@ import type {
   Program, ProgramDay, Exercise,
   WorkoutSession, SessionSet, PersonalRecord,
   FoodLog, BodyMeasurement, UserProfile, ActivityLog,
+  ExerciseLibraryItem,
 } from '../types'
 
 
@@ -481,6 +482,41 @@ export const bodyDb = {
   async delete(id: string): Promise<void> {
     await supabase.from('body_measurements').delete().eq('id', id)
   },
+}
+
+// ─── HAREKET HAVUZU ───────────────────────────────────────────
+export const exerciseLibraryDb = {
+  async getAll(): Promise<ExerciseLibraryItem[]> {
+    const { data } = await supabase
+      .from('exercise_library')
+      .select('*')
+      .order('muscle_group', { ascending: true })
+      .order('name', { ascending: true })
+    return (data ?? []).map(mapLibraryItem)
+  },
+  async create(input: Omit<ExerciseLibraryItem, 'id' | 'created_at'>): Promise<ExerciseLibraryItem> {
+    const { data, error } = await supabase
+      .from('exercise_library')
+      .insert(input)
+      .select()
+      .single()
+    if (error || !data) throw error ?? new Error('Hareket eklenemedi')
+    return mapLibraryItem(data)
+  },
+  async delete(id: string): Promise<void> {
+    await supabase.from('exercise_library').delete().eq('id', id)
+  },
+}
+
+function mapLibraryItem(r: Record<string, unknown>): ExerciseLibraryItem {
+  return {
+    id: r.id as string,
+    name: r.name as string,
+    muscle_group: r.muscle_group as string,
+    type: (r.type as ExerciseLibraryItem['type']) ?? 'strength',
+    notes: r.notes as string | undefined,
+    created_at: r.created_at as string,
+  }
 }
 
 // ─── AKTİVİTE KAYDI ──────────────────────────────────────────

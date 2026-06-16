@@ -25,8 +25,6 @@ const C = {
   successBorder:'rgba(22,101,52,0.18)',
 }
 
-const DAYS = ['Pt', 'Sa', 'Ça', 'Pe', 'Cu', 'Ct', 'Pz']
-
 type DayMeta = ProgramDay & { exercise_count: number }
 type ProgramRow = Program & { days: DayMeta[] }
 
@@ -39,18 +37,23 @@ async function fetchPrograms(): Promise<ProgramRow[]> {
   return arr.map(p => ({ ...p, days: p.days ?? [] }))
 }
 
-function DayDots({ days }: { days: DayMeta[] }) {
-  const active = new Set(days.map(d => d.weekday))
+function DayChips({ days }: { days: DayMeta[] }) {
+  if (days.length === 0) return null
   return (
-    <div className="flex gap-1.5">
-      {DAYS.map((label, i) => (
-        <div key={i} className="flex flex-col items-center gap-1">
-          <div className="w-5 h-1 rounded-full transition-colors"
-            style={{ background: active.has(i) ? C.text : C.borderSub }} />
-          <span className="text-[9px] font-semibold"
-            style={{ color: active.has(i) ? C.textMid : C.textLow }}>
-            {label}
+    <div className="flex flex-wrap gap-1.5">
+      {days.map(d => (
+        <div key={d.id}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg"
+          style={{ background: C.surfaceHigh }}>
+          <span className="text-[11px] font-semibold" style={{ color: C.textMid }}>
+            {d.day_name}
           </span>
+          {d.exercise_count > 0 && (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md"
+              style={{ background: C.border, color: C.textLow }}>
+              {d.exercise_count}
+            </span>
+          )}
         </div>
       ))}
     </div>
@@ -141,7 +144,7 @@ export default function Programs() {
                 <p className="text-[13px] mb-4" style={{ color: C.textMid }}>{active.description}</p>
               )}
               <div className={active.description ? '' : 'mt-4'}>
-                <DayDots days={active.days} />
+                <DayChips days={active.days} />
               </div>
             </div>
           </button>
@@ -170,7 +173,7 @@ export default function Programs() {
                 <ChevronRight size={14} style={{ color: C.textLow }} />
               </div>
             </div>
-            <DayDots days={p.days} />
+            <DayChips days={p.days} />
           </button>
         ))}
 

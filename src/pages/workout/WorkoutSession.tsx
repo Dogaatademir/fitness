@@ -7,6 +7,16 @@ import {
 } from 'lucide-react'
 import { sessionDb, setDb, prDb, profileDb } from '../../lib/db'
 import { supabase, getUserId } from '../../lib/supabase'
+
+type LastSetData = {
+  set_number: number
+  weight_kg?: number
+  reps?: number
+  duration_minutes?: number
+  distance_km?: number
+  held_seconds?: number
+}
+type LastSetsMap = Record<string, LastSetData[]> // exercise_id → sets
 import { today } from '../../lib/storage'
 import { QK } from '../../lib/queryClient'
 import { estimateWorkoutCalories } from '../../lib/api'
@@ -219,7 +229,13 @@ function SetRow({ set, index, exercise, prevSet, onChange, onComplete, onDelete 
           <>
             <div className="flex items-center gap-1 flex-1">
               <button
-                onClick={() => onChange(set.id, { weight_kg: Math.max(0, (set.weight_kg ?? 0) - 2.5) })}
+                onClick={() => {
+                  if (set.weight_kg == null) {
+                    onChange(set.id, { weight_kg: prevSet?.weight_kg ?? 0 })
+                  } else {
+                    onChange(set.id, { weight_kg: Math.max(0, set.weight_kg - 2.5) })
+                  }
+                }}
                 className="w-7 h-7 rounded-lg border border-stone-200 flex items-center justify-center text-stone-400 active:bg-stone-100 flex-shrink-0"
               >
                 <Minus size={12} />
@@ -227,14 +243,23 @@ function SetRow({ set, index, exercise, prevSet, onChange, onComplete, onDelete 
               <input
                 type="number"
                 inputMode="decimal"
-                value={set.weight_kg || ''}
+                value={set.weight_kg ?? ''}
                 placeholder={prevSet?.weight_kg?.toString() ?? '—'}
-                onChange={e => onChange(set.id, { weight_kg: parseFloat(e.target.value) || 0 })}
+                onChange={e => {
+                  const v = e.target.value
+                  onChange(set.id, { weight_kg: v === '' ? undefined : parseFloat(v) || 0 })
+                }}
                 key={`w-${shakeKey}`}
                 className={`w-14 text-center text-sm font-semibold bg-transparent border-b outline-none py-1 tabular-nums focus:border-slate-400 ${shakeFields.weight ? 'shake border-red-400' : 'border-stone-200'}`}
               />
               <button
-                onClick={() => onChange(set.id, { weight_kg: (set.weight_kg ?? 0) + 2.5 })}
+                onClick={() => {
+                  if (set.weight_kg == null) {
+                    onChange(set.id, { weight_kg: prevSet?.weight_kg ?? 2.5 })
+                  } else {
+                    onChange(set.id, { weight_kg: set.weight_kg + 2.5 })
+                  }
+                }}
                 className="w-7 h-7 rounded-lg border border-stone-200 flex items-center justify-center text-stone-400 active:bg-stone-100 flex-shrink-0"
               >
                 <Plus size={12} />
@@ -243,7 +268,13 @@ function SetRow({ set, index, exercise, prevSet, onChange, onComplete, onDelete 
             </div>
             <div className="flex items-center gap-1">
               <button
-                onClick={() => onChange(set.id, { reps: Math.max(0, (set.reps ?? 0) - 1) })}
+                onClick={() => {
+                  if (set.reps == null) {
+                    onChange(set.id, { reps: prevSet?.reps ?? 0 })
+                  } else {
+                    onChange(set.id, { reps: Math.max(0, set.reps - 1) })
+                  }
+                }}
                 className="w-7 h-7 rounded-lg border border-stone-200 flex items-center justify-center text-stone-400 active:bg-stone-100 flex-shrink-0"
               >
                 <Minus size={12} />
@@ -251,14 +282,23 @@ function SetRow({ set, index, exercise, prevSet, onChange, onComplete, onDelete 
               <input
                 type="number"
                 inputMode="numeric"
-                value={set.reps || ''}
+                value={set.reps ?? ''}
                 placeholder={prevSet?.reps?.toString() ?? exercise.target_reps_min?.toString() ?? '—'}
-                onChange={e => onChange(set.id, { reps: parseInt(e.target.value) || 0 })}
+                onChange={e => {
+                  const v = e.target.value
+                  onChange(set.id, { reps: v === '' ? undefined : parseInt(v) || 0 })
+                }}
                 key={`r-${shakeKey}`}
                 className={`w-10 text-center text-sm font-semibold bg-transparent border-b outline-none py-1 tabular-nums focus:border-slate-400 ${shakeFields.reps ? 'shake border-red-400' : 'border-stone-200'}`}
               />
               <button
-                onClick={() => onChange(set.id, { reps: (set.reps ?? 0) + 1 })}
+                onClick={() => {
+                  if (set.reps == null) {
+                    onChange(set.id, { reps: prevSet?.reps ?? 1 })
+                  } else {
+                    onChange(set.id, { reps: set.reps + 1 })
+                  }
+                }}
                 className="w-7 h-7 rounded-lg border border-stone-200 flex items-center justify-center text-stone-400 active:bg-stone-100 flex-shrink-0"
               >
                 <Plus size={12} />
@@ -271,7 +311,13 @@ function SetRow({ set, index, exercise, prevSet, onChange, onComplete, onDelete 
         {isBodyweight && (
           <div className="flex items-center gap-1 flex-1">
             <button
-              onClick={() => onChange(set.id, { reps: Math.max(0, (set.reps ?? 0) - 1) })}
+              onClick={() => {
+                if (set.reps == null) {
+                  onChange(set.id, { reps: prevSet?.reps ?? 0 })
+                } else {
+                  onChange(set.id, { reps: Math.max(0, set.reps - 1) })
+                }
+              }}
               className="w-7 h-7 rounded-lg border border-stone-200 flex items-center justify-center text-stone-400 active:bg-stone-100 flex-shrink-0"
             >
               <Minus size={12} />
@@ -279,14 +325,23 @@ function SetRow({ set, index, exercise, prevSet, onChange, onComplete, onDelete 
             <input
               type="number"
               inputMode="numeric"
-              value={set.reps || ''}
+              value={set.reps ?? ''}
               placeholder={prevSet?.reps?.toString() ?? exercise.target_reps_min?.toString() ?? '—'}
-              onChange={e => onChange(set.id, { reps: parseInt(e.target.value) || 0 })}
+              onChange={e => {
+                const v = e.target.value
+                onChange(set.id, { reps: v === '' ? undefined : parseInt(v) || 0 })
+              }}
               key={`r-${shakeKey}`}
               className={`w-14 text-center text-sm font-semibold bg-transparent border-b outline-none py-1 tabular-nums focus:border-slate-400 ${shakeFields.reps ? 'shake border-red-400' : 'border-stone-200'}`}
             />
             <button
-              onClick={() => onChange(set.id, { reps: (set.reps ?? 0) + 1 })}
+              onClick={() => {
+                if (set.reps == null) {
+                  onChange(set.id, { reps: prevSet?.reps ?? 1 })
+                } else {
+                  onChange(set.id, { reps: set.reps + 1 })
+                }
+              }}
               className="w-7 h-7 rounded-lg border border-stone-200 flex items-center justify-center text-stone-400 active:bg-stone-100 flex-shrink-0"
             >
               <Plus size={12} />
@@ -355,6 +410,7 @@ interface ExerciseCardProps {
   exercise: Exercise
   sets: SessionSet[]
   allSets: SessionSet[]
+  lastSets: LastSetData[]
   onAddSet: (exerciseId: string) => void
   onSetChange: (id: string, data: Partial<SessionSet>) => void
   onSetComplete: (id: string) => boolean
@@ -363,7 +419,7 @@ interface ExerciseCardProps {
 }
 
 function ExerciseCard({
-  exercise, sets, allSets, onAddSet, onSetChange, onSetComplete, onSetDelete, newPRs,
+  exercise, sets, allSets, lastSets, onAddSet, onSetChange, onSetComplete, onSetDelete, newPRs,
 }: ExerciseCardProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [imageModal, setImageModal] = useState(false)
@@ -403,6 +459,32 @@ function ExerciseCard({
               {exercise.muscle_group}
               {completedCount > 0 && ` · ${completedCount}/${sets.length} tamamlandı`}
             </p>
+            {/* Önceki antrenman özeti */}
+            {lastSets.length > 0 && (() => {
+              const isStrength = !exercise.type || exercise.type === 'strength'
+              const isBodyweight = exercise.type === 'bodyweight'
+              const isCardio = exercise.type === 'cardio'
+              const isTimed = exercise.type === 'timed'
+              if (isStrength) {
+                const maxW = Math.max(...lastSets.map(s => s.weight_kg ?? 0))
+                const repPerSet = lastSets[0]?.reps ?? 0
+                return <p className="text-[10px] mt-0.5 font-semibold" style={{ color: '#0891b2' }}>Önceki: {lastSets.length}×{repPerSet} · {maxW}kg</p>
+              }
+              if (isBodyweight) {
+                const repPerSet = lastSets[0]?.reps ?? 0
+                return <p className="text-[10px] mt-0.5 font-semibold" style={{ color: '#0891b2' }}>Önceki: {lastSets.length}×{repPerSet} tekrar</p>
+              }
+              if (isCardio) {
+                const totalDur = lastSets.reduce((a, s) => a + (s.duration_minutes ?? 0), 0)
+                const totalDist = lastSets.reduce((a, s) => a + (s.distance_km ?? 0), 0)
+                return <p className="text-[10px] mt-0.5 font-semibold" style={{ color: '#0891b2' }}>Önceki: {totalDur > 0 ? `${totalDur} dk` : ''}{totalDur > 0 && totalDist > 0 ? ' · ' : ''}{totalDist > 0 ? `${totalDist} km` : ''}</p>
+              }
+              if (isTimed) {
+                const totalHeld = lastSets.reduce((a, s) => a + (s.held_seconds ?? 0), 0)
+                return <p className="text-[10px] mt-0.5 font-semibold" style={{ color: '#0891b2' }}>Önceki: {lastSets.length} set · {totalHeld} sn</p>
+              }
+              return null
+            })()}
           </div>
         </div>
         {collapsed ? <ChevronDown size={16} className="text-stone-400" /> : <ChevronUp size={16} className="text-stone-400" />}
@@ -432,18 +514,33 @@ function ExerciseCard({
             <span className="w-7" />
           </div>
 
-          {sets.map((set, i) => (
-            <SetRow
-              key={set.id}
-              set={set}
-              index={i}
-              exercise={exercise}
-              prevSet={prevSets[i]}
-              onChange={onSetChange}
-              onComplete={onSetComplete}
-              onDelete={onSetDelete}
-            />
-          ))}
+          {sets.map((set, i) => {
+            const last = lastSets[i]
+            const prevSetForRow: SessionSet | undefined = last ? {
+              id: '',
+              session_id: '',
+              exercise_id: exercise.id,
+              set_number: last.set_number,
+              completed: true,
+              weight_kg: last.weight_kg,
+              reps: last.reps,
+              duration_minutes: last.duration_minutes,
+              distance_km: last.distance_km,
+              held_seconds: last.held_seconds,
+            } : prevSets[i]
+            return (
+              <SetRow
+                key={set.id}
+                set={set}
+                index={i}
+                exercise={exercise}
+                prevSet={prevSetForRow}
+                onChange={onSetChange}
+                onComplete={onSetComplete}
+                onDelete={onSetDelete}
+              />
+            )
+          })}
 
           <button
             onClick={() => onAddSet(exercise.id)}
@@ -490,6 +587,7 @@ export default function WorkoutSession() {
   const [exercises, setExercises] = useState<Exercise[]>([])
   const [sets, setSets] = useState<SessionSet[]>([])
   const [allHistorySets, setAllHistorySets] = useState<SessionSet[]>([])
+  const [lastSetsMap, setLastSetsMap] = useState<LastSetsMap>({})
   const [elapsed, setElapsed] = useState(0)
   const [restTimer, setRestTimer] = useState<{ seconds: number } | null>(null)
   const [newPRs, setNewPRs] = useState<Set<string>>(new Set())
@@ -564,6 +662,15 @@ export default function WorkoutSession() {
         setExercises(dayExercises)
         setAllHistorySets([])
 
+        // Önceki antrenman verilerini çek
+        if (dayExercises.length > 0) {
+          const { data: lastData } = await supabase.rpc('get_last_session_sets', {
+            p_user_id: userId,
+            p_exercise_ids: dayExercises.map(e => e.id),
+          })
+          if (lastData) setLastSetsMap(lastData as LastSetsMap)
+        }
+
         const newSession = await sessionDb.create({
           program_day_id: forcedDayId,
           date: todayStr,
@@ -613,6 +720,15 @@ export default function WorkoutSession() {
       const dayExercises = (r.exercises as Exercise[]) ?? []
       setExercises(dayExercises)
       setAllHistorySets([])
+
+      // Önceki antrenman verilerini çek
+      if (dayExercises.length > 0) {
+        const { data: lastData } = await supabase.rpc('get_last_session_sets', {
+          p_user_id: userId,
+          p_exercise_ids: dayExercises.map(e => e.id),
+        })
+        if (lastData) setLastSetsMap(lastData as LastSetsMap)
+      }
 
       const existingSession = r.session as WorkoutSession | null
       const isResuming = !!existingSession  // true = yarım bırakılmış, false = yeni
@@ -708,6 +824,7 @@ export default function WorkoutSession() {
     }, 1000)
     return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null } }
   }, [!!session, session?.ended_at])
+
 
   const handleSetChange = useCallback((id: string, data: Partial<SessionSet>) => {
     setSets(prev => prev.map(s => s.id === id ? { ...s, ...data } : s))
@@ -1006,6 +1123,7 @@ export default function WorkoutSession() {
                   exercise={exercise}
                   sets={sets.filter(s => s.exercise_id === exercise.id)}
                   allSets={allHistorySets}
+                  lastSets={lastSetsMap[exercise.id] ?? []}
                   onAddSet={handleAddSet}
                   onSetChange={handleSetChange}
                   onSetComplete={handleSetComplete}

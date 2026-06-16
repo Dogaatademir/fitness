@@ -152,6 +152,17 @@ export interface UserProfile {
   bmr_kcal?: number
 }
 
+// ─── HAREKET HAVUZU ───────────────────────────────────────────
+
+export interface ExerciseLibraryItem {
+  id: string
+  name: string
+  muscle_group: string
+  type: 'strength' | 'cardio' | 'timed' | 'bodyweight'
+  notes?: string
+  created_at: string
+}
+
 // ─── AKTİVİTE KAYDI ──────────────────────────────────────────
 
 export interface ActivityLog {

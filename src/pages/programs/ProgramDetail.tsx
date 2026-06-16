@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Edit2, X, Dumbbell, Activity, Timer, Check, ImagePlus } from 'lucide-react'
-import { programDb, programDayDb, exerciseDb } from '../../lib/db'
+import { Plus, Trash2, Edit2, X, Dumbbell, Activity, Timer, Check, ImagePlus, Search, BookOpen } from 'lucide-react'
+import { programDb, programDayDb, exerciseDb, exerciseLibraryDb } from '../../lib/db'
 import { supabase, getUserId } from '../../lib/supabase'
 import { QK } from '../../lib/queryClient'
-import type { Program, ProgramDay, Exercise } from '../../types'
+import type { Program, ProgramDay, Exercise, ExerciseLibraryItem } from '../../types'
 
 const C = {
   bg:          '#f5f3ef',
@@ -122,6 +122,13 @@ export default function ProgramDetail() {
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Hareket havuzu
+  const [library, setLibrary] = useState<ExerciseLibraryItem[]>([])
+  const [libTab, setLibTab] = useState<'pick' | 'new'>('pick')
+  const [libSearch, setLibSearch] = useState('')
+  const [libMuscle, setLibMuscle] = useState('Tümü')
+  const [libPhase, setLibPhase] = useState<ExPhase>('main')
+
   async function handleImageUpload(file: File) {
     if (!editingEx) return
     setUploading(true)
@@ -153,6 +160,9 @@ export default function ProgramDetail() {
   }
 
   useEffect(() => { if (id) load() }, [id])
+  useEffect(() => {
+    exerciseLibraryDb.getAll().then(setLibrary)
+  }, [])
 
   async function load() {
     if (!id) return
@@ -203,6 +213,35 @@ export default function ProgramDetail() {
       rest_seconds: newEx.type !== 'cardio' ? newEx.rest_seconds : undefined,
       target_duration_minutes: newEx.type === 'cardio' ? newEx.target_duration_minutes : undefined,
       target_duration_seconds: newEx.type === 'timed' ? newEx.target_duration_seconds : undefined,
+      order_index: exercises[dayId]?.length || 0,
+    })
+    // Havuzda yoksa otomatik ekle
+    const alreadyInLib = library.some(l => l.name.toLowerCase() === newEx.name.trim().toLowerCase())
+    if (!alreadyInLib) {
+      try {
+        const added = await exerciseLibraryDb.create({
+          name: newEx.name.trim(),
+          muscle_group: newEx.muscle_group,
+          type: newEx.type,
+        })
+        setLibrary(prev => [...prev, added].sort((a, b) => a.name.localeCompare(b.name)))
+      } catch { /* unique constraint — zaten var */ }
+    }
+    setModal(null)
+    load()
+  }
+
+  async function handleAddFromLibrary(dayId: string, item: ExerciseLibraryItem) {
+    await exerciseDb.create({
+      program_day_id: dayId,
+      name: item.name,
+      muscle_group: item.muscle_group,
+      type: item.type,
+      phase: libPhase,
+      target_sets: item.type !== 'cardio' ? 3 : undefined,
+      target_reps_min: item.type === 'strength' ? 8 : undefined,
+      target_reps_max: item.type === 'strength' ? 12 : undefined,
+      rest_seconds: item.type !== 'cardio' ? 90 : undefined,
       order_index: exercises[dayId]?.length || 0,
     })
     setModal(null)
@@ -391,7 +430,7 @@ export default function ProgramDetail() {
 
               {/* Egzersiz ekle */}
               <button
-                onClick={() => { setNewEx(defaultNew()); setModal({ type: 'addExercise', dayId: day.id }) }}
+                onClick={() => { setNewEx(defaultNew()); setLibTab('pick'); setLibSearch(''); setLibMuscle('Tümü'); setLibPhase('main'); setModal({ type: 'addExercise', dayId: day.id }) }}
                 className="w-full py-3.5 flex items-center justify-center gap-1.5 text-[12px] font-semibold active:bg-black/[0.02] transition-colors"
                 style={{ borderTop: `1px solid ${C.borderSub}`, color: C.textLow }}
               >
@@ -435,106 +474,240 @@ export default function ProgramDetail() {
       )}
 
       {/* ── Egzersiz Ekle Modal ── */}
-      {modal?.type === 'addExercise' && (
-        <ModalShell onClose={() => setModal(null)}>
-          <ModalHeader title="Egzersiz Ekle" onClose={() => setModal(null)} />
-          <div className="space-y-3">
-            <Field label="Egzersiz Adı">
-              <input type="text" autoFocus placeholder="Bench Press, Squat…"
-                value={newEx.name}
-                onChange={e => setNewEx(v => ({ ...v, name: e.target.value }))}
-                className={INPUT} style={inputStyle} />
-            </Field>
-            <Field label="Bölüm">
-              <select value={newEx.phase}
-                onChange={e => setNewEx(v => ({ ...v, phase: e.target.value as ExPhase }))}
-                className={SELECT} style={inputStyle}>
-                <option value="warmup">Isınma</option>
-                <option value="main">Antrenman</option>
-                <option value="cooldown">Soğuma</option>
-              </select>
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Tür">
-                <select value={newEx.type}
-                  onChange={e => setNewEx(v => ({ ...v, type: e.target.value as ExType }))}
-                  className={SELECT} style={inputStyle}>
-                  <option value="strength">Ağırlık</option>
-                  <option value="bodyweight">Vücut Ağırlığı</option>
-                  <option value="cardio">Kardiyo</option>
-                  <option value="timed">Zamanlı</option>
-                </select>
-              </Field>
-              <Field label="Kas Grubu">
-                <select value={newEx.muscle_group}
-                  onChange={e => setNewEx(v => ({ ...v, muscle_group: e.target.value }))}
-                  className={SELECT} style={inputStyle}>
-                  {MUSCLE_GROUPS.map(mg => <option key={mg} value={mg}>{mg}</option>)}
-                </select>
-              </Field>
+      {modal?.type === 'addExercise' && (() => {
+        const dayId = modal.dayId
+        const libMuscles = ['Tümü', ...Array.from(new Set(library.map(l => l.muscle_group))).sort()]
+        const filtered = library.filter(l => {
+          const matchMuscle = libMuscle === 'Tümü' || l.muscle_group === libMuscle
+          const matchSearch = libSearch === '' || l.name.toLowerCase().includes(libSearch.toLowerCase())
+          return matchMuscle && matchSearch
+        })
+        return (
+          <ModalShell onClose={() => setModal(null)}>
+            <ModalHeader title="Egzersiz Ekle" onClose={() => setModal(null)} />
+
+            {/* Sekme seçici */}
+            <div className="flex gap-1 p-1 rounded-xl mb-4" style={{ background: C.surfaceHigh }}>
+              {(['pick', 'new'] as const).map(tab => (
+                <button key={tab}
+                  onClick={() => setLibTab(tab)}
+                  className="flex-1 py-2 rounded-lg text-[12px] font-bold transition-all flex items-center justify-center gap-1.5"
+                  style={{
+                    background: libTab === tab ? C.surface : 'transparent',
+                    color: libTab === tab ? C.text : C.textLow,
+                    boxShadow: libTab === tab ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                  }}
+                >
+                  {tab === 'pick' ? <><BookOpen size={12} />Havuzdan Seç</> : <><Plus size={12} />Yeni Hareket</>}
+                </button>
+              ))}
             </div>
-            {newEx.type === 'strength' && (
-              <>
-                <div className="grid grid-cols-3 gap-2">
-                  <Field label="Set">
-                    <input type="number" min={1} value={newEx.target_sets}
-                      onChange={e => setNewEx(v => ({ ...v, target_sets: +e.target.value }))}
-                      className={INPUT} style={inputStyle} />
-                  </Field>
-                  <Field label="Min Tek.">
-                    <input type="number" min={1} value={newEx.target_reps_min}
-                      onChange={e => setNewEx(v => ({ ...v, target_reps_min: +e.target.value }))}
-                      className={INPUT} style={inputStyle} />
-                  </Field>
-                  <Field label="Max Tek.">
-                    <input type="number" min={1} value={newEx.target_reps_max}
-                      onChange={e => setNewEx(v => ({ ...v, target_reps_max: +e.target.value }))}
-                      className={INPUT} style={inputStyle} />
-                  </Field>
+
+            {/* Bölüm seçici (her iki sekmede ortak) */}
+            <div className="mb-3">
+              <label className="text-[11px] font-semibold uppercase tracking-widest block mb-1.5" style={{ color: C.textLow }}>
+                Bölüm
+              </label>
+              <div className="flex gap-2">
+                {(['warmup', 'main', 'cooldown'] as ExPhase[]).map(ph => (
+                  <button key={ph}
+                    onClick={() => { setLibPhase(ph); setNewEx(v => ({ ...v, phase: ph })) }}
+                    className="flex-1 py-2 rounded-xl text-[11px] font-bold transition-all"
+                    style={{
+                      background: (libTab === 'pick' ? libPhase : newEx.phase) === ph ? C.text : C.surfaceHigh,
+                      color: (libTab === 'pick' ? libPhase : newEx.phase) === ph ? C.bg : C.textMid,
+                    }}
+                  >
+                    {ph === 'warmup' ? 'Isınma' : ph === 'main' ? 'Antrenman' : 'Soğuma'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* HAVUZDAN SEÇ */}
+            {libTab === 'pick' && (
+              <div className="space-y-3">
+                {/* Arama */}
+                <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl" style={{ background: C.surfaceHigh }}>
+                  <Search size={14} style={{ color: C.textLow, flexShrink: 0 }} />
+                  <input
+                    type="text"
+                    placeholder="Hareket ara…"
+                    value={libSearch}
+                    onChange={e => setLibSearch(e.target.value)}
+                    className="flex-1 bg-transparent text-[13px] font-medium outline-none"
+                    style={{ color: C.text }}
+                    autoFocus
+                  />
+                  {libSearch && (
+                    <button onClick={() => setLibSearch('')} style={{ color: C.textLow }}>
+                      <X size={13} />
+                    </button>
+                  )}
                 </div>
-                <Field label="Dinlenme (sn)">
-                  <input type="number" min={0} value={newEx.rest_seconds}
-                    onChange={e => setNewEx(v => ({ ...v, rest_seconds: +e.target.value }))}
-                    className={INPUT} style={inputStyle} />
-                </Field>
-              </>
-            )}
-            {newEx.type === 'cardio' && (
-              <Field label="Süre (dakika)">
-                <input type="number" min={1} value={newEx.target_duration_minutes}
-                  onChange={e => setNewEx(v => ({ ...v, target_duration_minutes: +e.target.value }))}
-                  className={INPUT} style={inputStyle} />
-              </Field>
-            )}
-            {newEx.type === 'timed' && (
-              <div className="grid grid-cols-3 gap-2">
-                <Field label="Set">
-                  <input type="number" min={1} value={newEx.target_sets}
-                    onChange={e => setNewEx(v => ({ ...v, target_sets: +e.target.value }))}
-                    className={INPUT} style={inputStyle} />
-                </Field>
-                <Field label="Süre (sn)">
-                  <input type="number" min={1} value={newEx.target_duration_seconds}
-                    onChange={e => setNewEx(v => ({ ...v, target_duration_seconds: +e.target.value }))}
-                    className={INPUT} style={inputStyle} />
-                </Field>
-                <Field label="Dinlenme (sn)">
-                  <input type="number" min={0} value={newEx.rest_seconds}
-                    onChange={e => setNewEx(v => ({ ...v, rest_seconds: +e.target.value }))}
-                    className={INPUT} style={inputStyle} />
-                </Field>
+
+                {/* Kas grubu filtre */}
+                <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+                  {libMuscles.map(mg => (
+                    <button key={mg}
+                      onClick={() => setLibMuscle(mg)}
+                      className="flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all"
+                      style={{
+                        background: libMuscle === mg ? C.text : C.surfaceHigh,
+                        color: libMuscle === mg ? C.bg : C.textMid,
+                      }}
+                    >
+                      {mg}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Liste */}
+                <div className="space-y-1 max-h-64 overflow-y-auto -mx-1 px-1">
+                  {filtered.length === 0 ? (
+                    <div className="py-8 text-center">
+                      <p className="text-[13px] font-semibold mb-1" style={{ color: C.textMid }}>
+                        {library.length === 0 ? 'Havuz boş' : 'Sonuç yok'}
+                      </p>
+                      <p className="text-[12px]" style={{ color: C.textLow }}>
+                        {library.length === 0
+                          ? '"Yeni Hareket" sekmesinden ekle'
+                          : 'Farklı bir arama dene'}
+                      </p>
+                    </div>
+                  ) : (
+                    filtered.map(item => (
+                      <button key={item.id}
+                        onClick={() => handleAddFromLibrary(dayId, item)}
+                        className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left active:scale-[0.98] transition-transform"
+                        style={{ background: C.surfaceHigh }}
+                      >
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                          style={{ background: C.surface }}>
+                          {item.type === 'cardio'
+                            ? <Activity size={14} style={{ color: '#b45309' }} />
+                            : item.type === 'timed'
+                              ? <Timer size={14} style={{ color: '#7c3aed' }} />
+                              : item.type === 'bodyweight'
+                                ? <Activity size={14} style={{ color: '#0891b2' }} />
+                                : <Dumbbell size={14} style={{ color: C.textLow }} />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-semibold truncate" style={{ color: C.text }}>{item.name}</p>
+                          <p className="text-[11px]" style={{ color: C.textLow }}>{item.muscle_group}</p>
+                        </div>
+                        <Plus size={15} style={{ color: C.textLow, flexShrink: 0 }} />
+                      </button>
+                    ))
+                  )}
+                </div>
+
+                <button
+                  onClick={() => setLibTab('new')}
+                  className="w-full py-3 rounded-xl text-[12px] font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                  style={{ border: `1.5px dashed ${C.border}`, color: C.textLow }}
+                >
+                  <Plus size={13} />
+                  Havuzda yok, yeni ekle
+                </button>
               </div>
             )}
-            <button
-              onClick={() => { if (modal.type === 'addExercise') handleAddExercise(modal.dayId) }}
-              disabled={!newEx.name.trim()}
-              className="w-full h-11 rounded-xl text-[14px] font-bold active:opacity-80 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-              style={{ background: C.text, color: C.bg }}>
-              Ekle
-            </button>
-          </div>
-        </ModalShell>
-      )}
+
+            {/* YENİ HAREKET */}
+            {libTab === 'new' && (
+              <div className="space-y-3">
+                <Field label="Egzersiz Adı">
+                  <input type="text" autoFocus placeholder="Bench Press, Squat…"
+                    value={newEx.name}
+                    onChange={e => setNewEx(v => ({ ...v, name: e.target.value }))}
+                    className={INPUT} style={inputStyle} />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Tür">
+                    <select value={newEx.type}
+                      onChange={e => setNewEx(v => ({ ...v, type: e.target.value as ExType }))}
+                      className={SELECT} style={inputStyle}>
+                      <option value="strength">Ağırlık</option>
+                      <option value="bodyweight">Vücut Ağırlığı</option>
+                      <option value="cardio">Kardiyo</option>
+                      <option value="timed">Zamanlı</option>
+                    </select>
+                  </Field>
+                  <Field label="Kas Grubu">
+                    <select value={newEx.muscle_group}
+                      onChange={e => setNewEx(v => ({ ...v, muscle_group: e.target.value }))}
+                      className={SELECT} style={inputStyle}>
+                      {MUSCLE_GROUPS.map(mg => <option key={mg} value={mg}>{mg}</option>)}
+                    </select>
+                  </Field>
+                </div>
+                {newEx.type === 'strength' && (
+                  <>
+                    <div className="grid grid-cols-3 gap-2">
+                      <Field label="Set">
+                        <input type="number" min={1} value={newEx.target_sets}
+                          onChange={e => setNewEx(v => ({ ...v, target_sets: +e.target.value }))}
+                          className={INPUT} style={inputStyle} />
+                      </Field>
+                      <Field label="Min Tek.">
+                        <input type="number" min={1} value={newEx.target_reps_min}
+                          onChange={e => setNewEx(v => ({ ...v, target_reps_min: +e.target.value }))}
+                          className={INPUT} style={inputStyle} />
+                      </Field>
+                      <Field label="Max Tek.">
+                        <input type="number" min={1} value={newEx.target_reps_max}
+                          onChange={e => setNewEx(v => ({ ...v, target_reps_max: +e.target.value }))}
+                          className={INPUT} style={inputStyle} />
+                      </Field>
+                    </div>
+                    <Field label="Dinlenme (sn)">
+                      <input type="number" min={0} value={newEx.rest_seconds}
+                        onChange={e => setNewEx(v => ({ ...v, rest_seconds: +e.target.value }))}
+                        className={INPUT} style={inputStyle} />
+                    </Field>
+                  </>
+                )}
+                {newEx.type === 'cardio' && (
+                  <Field label="Süre (dakika)">
+                    <input type="number" min={1} value={newEx.target_duration_minutes}
+                      onChange={e => setNewEx(v => ({ ...v, target_duration_minutes: +e.target.value }))}
+                      className={INPUT} style={inputStyle} />
+                  </Field>
+                )}
+                {newEx.type === 'timed' && (
+                  <div className="grid grid-cols-3 gap-2">
+                    <Field label="Set">
+                      <input type="number" min={1} value={newEx.target_sets}
+                        onChange={e => setNewEx(v => ({ ...v, target_sets: +e.target.value }))}
+                        className={INPUT} style={inputStyle} />
+                    </Field>
+                    <Field label="Süre (sn)">
+                      <input type="number" min={1} value={newEx.target_duration_seconds}
+                        onChange={e => setNewEx(v => ({ ...v, target_duration_seconds: +e.target.value }))}
+                        className={INPUT} style={inputStyle} />
+                    </Field>
+                    <Field label="Dinlenme (sn)">
+                      <input type="number" min={0} value={newEx.rest_seconds}
+                        onChange={e => setNewEx(v => ({ ...v, rest_seconds: +e.target.value }))}
+                        className={INPUT} style={inputStyle} />
+                    </Field>
+                  </div>
+                )}
+                <p className="text-[11px]" style={{ color: C.textLow }}>
+                  Bu hareket otomatik olarak havuzuna da eklenecek.
+                </p>
+                <button
+                  onClick={() => handleAddExercise(dayId)}
+                  disabled={!newEx.name.trim()}
+                  className="w-full h-11 rounded-xl text-[14px] font-bold active:opacity-80 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  style={{ background: C.text, color: C.bg }}>
+                  Ekle
+                </button>
+              </div>
+            )}
+          </ModalShell>
+        )
+      })()}
 
       {/* ── Egzersiz Düzenle Modal ── */}
       {editingEx && (
